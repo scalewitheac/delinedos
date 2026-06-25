@@ -27,7 +27,6 @@ db = client[os.environ['DB_NAME']]
 JWT_SECRET = os.environ['JWT_SECRET']
 JWT_ALGORITHM = "HS256"
 SITE_PASSWORD = os.environ.get('SITE_PASSWORD', 'pass')
-VISITOR_PASSWORD = os.environ.get('VISITOR_PASSWORD', '')
 ADMIN_EMAIL = os.environ['ADMIN_EMAIL']
 ADMIN_PASSWORD = os.environ['ADMIN_PASSWORD']
 APP_NAME = os.environ.get('APP_NAME', 'delined')
@@ -229,11 +228,28 @@ async def root():
 @api_router.post("/site/verify-password")
 async def verify_site_password(body: SitePasswordIn):
     submitted = body.password or ""
-    valid_passwords = {SITE_PASSWORD}
-    if VISITOR_PASSWORD:
-        valid_passwords.add(VISITOR_PASSWORD)
-    if submitted in valid_passwords:
-        return {"ok": True}
+    # Admin password unlocks the gate AND grants an admin JWT in one step.
+    if submitted and submitted == ADMIN_PASSWORD:
+        admin_email = ADMIN_EMAIL.strip().lower()
+        user = await db.users.find_one({"email": admin_email})
+        if not user:
+            # Fail closed if the admin user hasn't been seeded yet.
+            raise HTTPException(status_code=500, detail="admin not seeded")
+        token = create_access_token(user["id"], user["email"])
+        return {
+            "ok": True,
+            "role": "admin",
+            "token": token,
+            "user": {
+                "id": user["id"],
+                "email": user["email"],
+                "name": user.get("name"),
+                "role": user.get("role"),
+            },
+        }
+    # Visitor / drifter password just unlocks the site.
+    if submitted and submitted == SITE_PASSWORD:
+        return {"ok": True, "role": "drifter"}
     raise HTTPException(status_code=401, detail="Incorrect password")
 
 @api_router.post("/auth/login")

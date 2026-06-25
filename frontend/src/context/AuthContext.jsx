@@ -21,9 +21,18 @@ export const AuthProvider = ({ children }) => {
   }, [token]);
 
   const verifySitePassword = async (password) => {
-    await axios.post(`${API}/site/verify-password`, { password });
+    const { data } = await axios.post(`${API}/site/verify-password`, { password });
     sessionStorage.setItem("site-unlocked", "1");
     setSiteUnlocked(true);
+    // If the password matched the admin's, the backend issues a JWT in the
+    // same call — store it so the user enters as the operator without a
+    // second login step.
+    if (data && data.token) {
+      localStorage.setItem("admin-token", data.token);
+      setToken(data.token);
+      if (data.user) setAdmin(data.user);
+    }
+    return data;
   };
 
   const acceptDisclaimer = () => {
