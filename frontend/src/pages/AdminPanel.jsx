@@ -85,6 +85,7 @@ const AdminPanel = () => {
     contact: { random_questions: [] },
   });
   const [textSaving, setTextSaving] = useState({});
+  const [purging, setPurging] = useState(false);
 
   const loadAll = useCallback(async () => {
     const [mr, dr, wr, vr, sr, tr] = await Promise.all([
@@ -197,6 +198,21 @@ const AdminPanel = () => {
       list.splice(idx, 1);
       return { ...s, [group]: { ...s[group], [key]: list } };
     });
+
+  const purgeSamples = async () => {
+    if (!window.confirm("Delete the built-in sample drawings / writings / videos / message from the database? This only removes the template rows, not anything you created.")) return;
+    setPurging(true);
+    try {
+      const { data } = await api.post(`/admin/purge-samples`);
+      const r = data?.removed || {};
+      toast(`purged — drawings ${r.drawings || 0} · writings ${r.writings || 0} · videos ${r.videos || 0} · messages ${r.messages || 0}`);
+      loadAll();
+    } catch {
+      toast("purge failed");
+    } finally {
+      setPurging(false);
+    }
+  };
 
   const page = (
     <div>
@@ -444,6 +460,26 @@ const AdminPanel = () => {
             disabled={!!textSaving.contact}
             data-testid="contact-text-save">
             {textSaving.contact ? "saving..." : "save questions"}
+          </button>
+        </div>
+      </Section>
+
+      <Section title="Maintenance">
+        <div className="flex flex-wrap items-start gap-4">
+          <div className="max-w-lg">
+            <div className="font-pixel uppercase text-xs tracking-widest text-[var(--ink-color)] mb-1">purge sample content</div>
+            <p className="font-hand text-sm text-[var(--ink-soft)]">
+              Removes only the built-in template drawings, writings, video, and message that used to seed on startup. Anything you created is untouched. Safe to run any time.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="pico-btn"
+            onClick={purgeSamples}
+            disabled={purging}
+            data-testid="purge-samples-btn"
+          >
+            {purging ? "purging..." : "purge sample content"}
           </button>
         </div>
       </Section>

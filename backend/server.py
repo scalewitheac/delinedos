@@ -599,92 +599,36 @@ async def seed_admin():
         logger.info("Updated admin password from env")
 
 async def seed_sample_content():
-    # Only seed if collections are empty
-    count = await db.drawings.count_documents({})
-    if count > 0:
-        return
-    now = datetime.now(timezone.utc).isoformat()
-    drawings = [
-        {
-            "id": str(uuid.uuid4()),
-            "title": "moon-rabbit",
-            "date": "02/14/2026",
-            "image_path": "https://images.unsplash.com/photo-1593472807861-5bb884af28f6?crop=entropy&cs=srgb&fm=jpg&w=1200",
-            "tags": ["sketch", "portrait"],
-            "description": "Pencil study, late night.",
-            "created_at": now,
-        },
-        {
-            "id": str(uuid.uuid4()),
-            "title": "study-001",
-            "date": "01/28/2026",
-            "image_path": "https://images.pexels.com/photos/10474406/pexels-photo-10474406.jpeg?auto=compress&cs=tinysrgb&w=1200",
-            "tags": ["character", "study"],
-            "description": "Character notes.",
-            "created_at": now,
-        },
-        {
-            "id": str(uuid.uuid4()),
-            "title": "doodle-pile",
-            "date": "01/05/2026",
-            "image_path": "https://images.unsplash.com/photo-1513364776144-60967b0f800f?crop=entropy&cs=srgb&fm=jpg&w=1200",
-            "tags": ["doodle", "ink"],
-            "description": "Margin doodles from chemistry.",
-            "created_at": now,
-        },
-    ]
-    await db.drawings.insert_many(drawings)
+    # No-op. The site is in active use and sample content is no longer seeded
+    # on startup. Kept as an empty function so existing call sites don't break.
+    return
 
-    writings = [
-        {
-            "id": str(uuid.uuid4()),
-            "title": "newsletter — winter notes",
-            "date": "02/01/2026",
-            "content": "Hi. It's been a strange month. I've been drawing more rabbits than usual.\n\nSome of this site is meant to be soft. Some of it is meant to be a vent. I'm not really separating the two anymore.\n\nI'm trying to write more like I talk. That's all.",
-            "tags": ["newsletter"],
-            "created_at": now,
-        },
-        {
-            "id": str(uuid.uuid4()),
-            "title": "small notice",
-            "date": "01/12/2026",
-            "content": "Closing commissions for a bit. I'll post here when I open them again.",
-            "tags": ["notice"],
-            "created_at": now,
-        },
-    ]
-    await db.writings.insert_many(writings)
+# Known sample content identifiers (used only for the /admin/purge-samples cleanup route).
+SAMPLE_DRAWING_TITLES = ["moon-rabbit", "study-001", "doodle-pile"]
+SAMPLE_WRITING_TITLES = ["newsletter — winter notes", "small notice"]
+SAMPLE_VIDEO_TITLES = ["timelapse-rabbit"]
+SAMPLE_MESSAGE_MARKERS = [
+    {"name": "anon", "email": "anon@example.com"},
+]
 
-    videos = [
-        {
-            "id": str(uuid.uuid4()),
-            "title": "timelapse-rabbit",
-            "date": "02/10/2026",
-            "video_path": None,
-            "external_url": "https://www.youtube.com/embed/dQw4w9WgXcQ",
-            "thumbnail_path": "https://images.unsplash.com/photo-1732995761914-d90f46d9d4a5?crop=entropy&cs=srgb&fm=jpg&w=800",
-            "tags": ["timelapse"],
-            "description": "Quick sketch timelapse.",
-            "created_at": now,
+@api_router.post("/admin/purge-samples")
+async def purge_samples(admin: dict = Depends(get_current_admin)):
+    """One-shot cleanup. Deletes only the exact sample rows that used to be
+    seeded on startup, identified by their unique titles/emails. Any content
+    the operator created themselves is left untouched."""
+    dr = await db.drawings.delete_many({"title": {"$in": SAMPLE_DRAWING_TITLES}})
+    wr = await db.writings.delete_many({"title": {"$in": SAMPLE_WRITING_TITLES}})
+    vr = await db.videos.delete_many({"title": {"$in": SAMPLE_VIDEO_TITLES}})
+    mr = await db.messages.delete_many({"$or": SAMPLE_MESSAGE_MARKERS})
+    return {
+        "ok": True,
+        "removed": {
+            "drawings": dr.deleted_count,
+            "writings": wr.deleted_count,
+            "videos": vr.deleted_count,
+            "messages": mr.deleted_count,
         },
-    ]
-    await db.videos.insert_many(videos)
-
-    messages = [
-        {
-            "id": str(uuid.uuid4()),
-            "name": "anon",
-            "email": "anon@example.com",
-            "website": "",
-            "found_via": "stumbled in",
-            "sender_descriptor": "a stranger with a kind map",
-            "message": "your work makes me feel like I'm in middle school again in the best way",
-            "approved": True,
-            "created_at": now,
-        },
-    ]
-    await db.messages.insert_many(messages)
-    logger.info("Seeded sample content")
+    }
 
 @app.on_event("startup")
 async def on_startup():

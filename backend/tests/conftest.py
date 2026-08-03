@@ -5,15 +5,33 @@ import requests
 
 BASE_URL: str = os.environ.get(
     "REACT_APP_BACKEND_URL",
-    "http://localhost:3000",
+    "https://creative-canvas-602.preview.emergentagent.com",
 ).rstrip("/")
-ADMIN_EMAIL: str = os.environ.get("ADMIN_EMAIL", "")
-ADMIN_PASSWORD: str = os.environ.get("ADMIN_PASSWORD", "")
+
+# New Delined credentials (see /app/memory/test_credentials.md)
+ADMIN_EMAIL: str = os.environ.get("ADMIN_EMAIL", "delinedreferal0@gmail.com")
+ADMIN_PASSWORD: str = os.environ.get("ADMIN_PASSWORD", "U9d0wNL3FTm4in!$")
+SITE_PASSWORD: str = os.environ.get("SITE_PASSWORD", "$T4r7newS4V3")
 
 
 @pytest.fixture(scope="session")
 def base_url() -> str:
     return BASE_URL
+
+
+@pytest.fixture(scope="session")
+def site_password() -> str:
+    return SITE_PASSWORD
+
+
+@pytest.fixture(scope="session")
+def admin_password() -> str:
+    return ADMIN_PASSWORD
+
+
+@pytest.fixture(scope="session")
+def admin_email() -> str:
+    return ADMIN_EMAIL
 
 
 @pytest.fixture(scope="session")
@@ -26,8 +44,6 @@ def api_client() -> Iterator[requests.Session]:
 
 @pytest.fixture(scope="session")
 def admin_token(api_client: requests.Session) -> str:
-    if not ADMIN_EMAIL or not ADMIN_PASSWORD:
-        pytest.skip("ADMIN_EMAIL / ADMIN_PASSWORD env vars not set; skipping auth tests")
     r = api_client.post(
         f"{BASE_URL}/api/auth/login",
         json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD},
