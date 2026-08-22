@@ -120,8 +120,14 @@ const Videos = () => {
   const [editing, setEditing] = useState(null);
 
   useEffect(() => {
-    axios.get(`${API}/videos`).then((r) => {
-      setItems(r.data);
+    const reload = () =>
+  axios.get(`${API}/videos`).then((r) => {
+    const data = Array.isArray(r.data)
+      ? r.data
+      : r.data.videos || [];
+
+    setVideos(data);
+  });
       const preselectId = location.state?.selectId;
       if (preselectId) {
         const picked = r.data.find((x) => x.id === preselectId);
