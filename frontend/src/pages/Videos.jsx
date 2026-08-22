@@ -137,8 +137,6 @@ const Videos = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const reload = () => axios.get(`${API}/videos`).then((r) => setItems(r.data));
-
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return items;
