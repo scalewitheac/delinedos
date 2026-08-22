@@ -16,12 +16,13 @@ const Writings = () => {
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState(null);
 
-  const load = () => axios.get(`${API}/writings`).then((r) => {
-    setItems(r.data);
-    const preselectId = location.state?.selectId;
-    const picked = preselectId ? r.data.find((x) => x.id === preselectId) : null;
-    if (picked) setSelected(picked);
-    else if (r.data.length && !selected) setSelected(r.data[0]);
+  const load = () =>
+  axios.get(`${API}/writings`).then((r) => {
+    const data = Array.isArray(r.data)
+      ? r.data
+      : r.data.writings || [];
+
+    setItems(data);
   });
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
