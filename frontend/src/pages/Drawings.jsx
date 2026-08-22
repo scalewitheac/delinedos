@@ -18,13 +18,18 @@ const Drawings = () => {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
 
-  const load = () => axios.get(`${API}/drawings`).then((r) => {
-    setItems(r.data);
-    const preselectId = location.state?.selectId;
-    const picked = preselectId ? r.data.find((x) => x.id === preselectId) : null;
-    if (picked) setSelected(picked);
-    else if (r.data.length && !selected) setSelected(r.data[0]);
-    setLoading(false);
+const load = () =>
+  axios.get(`${API}/drawings`).then((r) => {
+    setItems(Array.isArray(r.data) ? r.data : []);
+
+    const preselectId = location.state?.selectedId;
+    const picked = Array.isArray(r.data)
+      ? r.data.find((x) => x.id === preselectId)
+      : null;
+
+    if (picked) {
+      setSelected(picked);
+    }
   });
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
