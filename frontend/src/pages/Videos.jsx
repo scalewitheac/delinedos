@@ -120,22 +120,29 @@ const Videos = () => {
   const [editing, setEditing] = useState(null);
 
   useEffect(() => {
-    const reload = () =>
-  axios.get(`${API}/videos`).then((r) => {
-    const data = Array.isArray(r.data)
-      ? r.data
-      : r.data.videos || [];
+  const reload = () =>
+    axios.get(`${API}/videos`).then((r) => {
+      const data = Array.isArray(r.data)
+        ? r.data
+        : r.data.videos || [];
 
-    setVideos(data);
-  });
+      setItems(data);
+
       const preselectId = location.state?.selectId;
+
       if (preselectId) {
-        const picked = r.data.find((x) => x.id === preselectId);
-        if (picked) setOpen(picked);
+        const picked = data.find((x) => x.id === preselectId);
+
+        if (picked) {
+          setOpen(picked);
+        }
       }
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+
+  reload();
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
