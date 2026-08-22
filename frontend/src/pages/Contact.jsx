@@ -37,7 +37,14 @@ const Contact = () => {
   });
   const [submitting, setSubmitting] = useState(false);
 
-  const loadMessages = () => axios.get(`${API}/messages`).then((r) => setMessages(r.data));
+ const loadMessages = () =>
+  axios.get(`${API}/messages`).then((r) => {
+    const data = Array.isArray(r.data)
+      ? r.data
+      : r.data.messages || [];
+
+    setMessages(data);
+  });
 
   useEffect(() => {
     loadMessages();
