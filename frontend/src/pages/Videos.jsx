@@ -1,12 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
+import { useLocation } from "react-router-dom";
 import { NotebookFrame, PageCorner, StickyNote } from "../components/notebook/NotebookShell";
 import ProtectedImage, { resolveMediaUrl } from "../components/ProtectedImage";
 import AdminQuickAdd from "../components/AdminQuickAdd";
+import EditContentDialog from "../components/EditContentDialog";
+import { useAuth } from "../context/AuthContext";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
-const VideoPlayer = ({ video, onClose, onNext, hasNext }) => {
+const VideoPlayer = ({ video, onClose, onNext, hasNext, onEdit, isAdmin }) => {
   const ref = useRef(null);
   const [loop, setLoop] = useState(false);
   const [speed, setSpeed] = useState(1);
@@ -93,6 +96,15 @@ const VideoPlayer = ({ video, onClose, onNext, hasNext }) => {
           >
             skip ▶
           </button>
+          {isAdmin && (
+            <button
+              className="pico-btn"
+              onClick={onEdit}
+              data-testid="video-edit-btn"
+            >
+              ✎ edit
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -100,12 +112,23 @@ const VideoPlayer = ({ video, onClose, onNext, hasNext }) => {
 };
 
 const Videos = () => {
+  const { admin } = useAuth();
+  const location = useLocation();
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(null);
   const [query, setQuery] = useState("");
+  const [editing, setEditing] = useState(null);
 
   useEffect(() => {
-    axios.get(`${API}/videos`).then((r) => setItems(r.data));
+    axios.get(`${API}/videos`).then((r) => {
+      setItems(r.data);
+      const preselectId = location.state?.selectId;
+      if (preselectId) {
+        const picked = r.data.find((x) => x.id === preselectId);
+        if (picked) setOpen(picked);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const reload = () => axios.get(`${API}/videos`).then((r) => setItems(r.data));
@@ -201,6 +224,16 @@ const Videos = () => {
           onClose={() => setOpen(null)}
           onNext={nextVideo}
           hasNext={filtered.findIndex((x) => x.id === open.id) < filtered.length - 1}
+          onEdit={() => { setEditing(open); setOpen(null); }}
+          isAdmin={!!admin}
+        />
+      )}
+      {editing && (
+        <EditContentDialog
+          type="video"
+          item={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); reload(); }}
         />
       )}
     </>

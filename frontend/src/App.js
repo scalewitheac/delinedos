@@ -18,6 +18,7 @@ import Contact from "./pages/Contact";
 import AdminLogin from "./pages/AdminLogin";
 import AdminPanel from "./pages/AdminPanel";
 import NotFound from "./pages/NotFound";
+import SearchResults from "./pages/SearchResults";
 
 import { RibbonBookmark } from "./components/notebook/NotebookShell";
 import BackButton from "./components/BackButton";
@@ -73,6 +74,7 @@ function AppShell() {
         <Route path="/videos" element={<RequireSiteAccess><Videos /></RequireSiteAccess>} />
         <Route path="/about" element={<RequireSiteAccess><About /></RequireSiteAccess>} />
         <Route path="/contact" element={<RequireSiteAccess><Contact /></RequireSiteAccess>} />
+        <Route path="/search" element={<RequireSiteAccess><SearchResults /></RequireSiteAccess>} />
         <Route path="/admin/login" element={<RequireSiteAccess><AdminLogin /></RequireSiteAccess>} />
         <Route path="/admin" element={<RequireSiteAccess><AdminPanel /></RequireSiteAccess>} />
         <Route path="*" element={<NotFound />} />

@@ -44,6 +44,7 @@ const Hub = () => {
   const [shell, setShell] = useState(() => localStorage.getItem("device-shell") || "mauve");
   const [muted, setMutedState] = useState(() => localStorage.getItem("device-muted") === "1");
   const [bgImage, setBgImage] = useState("");
+  const [hubQuery, setHubQuery] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -165,19 +166,20 @@ const Hub = () => {
                 </div>
               </div>
             ) : (
-              <div className="crt-grid">
-                {MENU.map((m, i) => (
-                  <Link
-                    key={m.to}
-                    to={m.to}
-                    data-testid={`hub-nav-${m.label.toLowerCase()}-link`}
-                    className="crt-card"
-                    onMouseEnter={() => { if (cursor !== i) sfx.blip(); setCursor(i); }}
-                    onFocus={() => setCursor(i)}
-                    onClick={() => sfx.select()}
-                    style={cursor === i ? {
-                      background: "rgba(247, 214, 120, 0.14)",
-                      boxShadow: "0 0 0 1px var(--crt-fg) inset, 0 0 16px var(--crt-glow)",
+              <>
+                <div className="crt-grid">
+                  {MENU.map((m, i) => (
+                    <Link
+                      key={m.to}
+                      to={m.to}
+                      data-testid={`hub-nav-${m.label.toLowerCase()}-link`}
+                      className="crt-card"
+                      onMouseEnter={() => { if (cursor !== i) sfx.blip(); setCursor(i); }}
+                      onFocus={() => setCursor(i)}
+                      onClick={() => sfx.select()}
+                      style={cursor === i ? {
+                        background: "rgba(247, 214, 120, 0.14)",
+                        boxShadow: "0 0 0 1px var(--crt-fg) inset, 0 0 16px var(--crt-glow)",
                     } : undefined}
                   >
                     <div className="label">
@@ -186,8 +188,54 @@ const Hub = () => {
                     <div className="sub">{m.sub}</div>
                     <span className="arrow">▶</span>
                   </Link>
-                ))}
-              </div>
+                  ))}
+                </div>
+
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const q = (hubQuery || "").trim();
+                    if (!q) return;
+                    sfx.select();
+                    navigate(`/search?q=${encodeURIComponent(q)}`);
+                  }}
+                  style={{ position: "relative", zIndex: 4, marginTop: 14, display: "flex", gap: 8, alignItems: "center" }}
+                >
+                  <span style={{ fontFamily: "'VT323', monospace", color: "var(--crt-fg-dim)" }}>search ▸</span>
+                  <input
+                    value={hubQuery}
+                    onChange={(e) => setHubQuery(e.target.value)}
+                    placeholder="title · #tag · text"
+                    data-testid="hub-search-input"
+                    style={{
+                      flex: 1,
+                      background: "rgba(0,0,0,0.35)",
+                      color: "var(--crt-fg)",
+                      border: "1px solid var(--crt-fg-dim)",
+                      padding: "5px 10px",
+                      fontFamily: "'VT323', monospace",
+                      fontSize: "1rem",
+                      outline: "none",
+                      borderRadius: 4,
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    data-testid="hub-search-submit"
+                    style={{
+                      background: "transparent",
+                      color: "var(--crt-fg)",
+                      border: "1px solid var(--crt-fg)",
+                      padding: "4px 12px",
+                      fontFamily: "'VT323', monospace",
+                      cursor: "pointer",
+                      borderRadius: 4,
+                    }}
+                  >
+                    go
+                  </button>
+                </form>
+              </>
             )}
 
             <div className="crt-footer">

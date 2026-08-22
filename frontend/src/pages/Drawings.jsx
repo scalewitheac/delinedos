@@ -1,20 +1,29 @@
 import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
+import { useLocation } from "react-router-dom";
 import { NotebookFrame, PageCorner, StickyNote } from "../components/notebook/NotebookShell";
 import ProtectedImage from "../components/ProtectedImage";
 import AdminQuickAdd from "../components/AdminQuickAdd";
+import EditContentDialog from "../components/EditContentDialog";
+import { useAuth } from "../context/AuthContext";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const Drawings = () => {
+  const { admin } = useAuth();
+  const location = useLocation();
   const [items, setItems] = useState([]);
   const [selected, setSelected] = useState(null);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(null);
 
   const load = () => axios.get(`${API}/drawings`).then((r) => {
     setItems(r.data);
-    if (r.data.length && !selected) setSelected(r.data[0]);
+    const preselectId = location.state?.selectId;
+    const picked = preselectId ? r.data.find((x) => x.id === preselectId) : null;
+    if (picked) setSelected(picked);
+    else if (r.data.length && !selected) setSelected(r.data[0]);
     setLoading(false);
   });
 
@@ -62,10 +71,20 @@ const Drawings = () => {
             {selected.description && (
               <p className="font-hand text-[var(--ink-soft)] mt-1 text-sm">{selected.description}</p>
             )}
-            <div className="mt-2 flex flex-wrap gap-2">
+            <div className="mt-2 flex flex-wrap items-center gap-2">
               {(selected.tags || []).map((t) => (
                 <span key={t} className="font-pixel text-xs uppercase tracking-widest text-[var(--ink-color)]">#{t}</span>
               ))}
+              {admin && (
+                <button
+                  type="button"
+                  className="pico-btn ml-auto"
+                  onClick={() => setEditing(selected)}
+                  data-testid={`inline-edit-drawing-${selected.id}`}
+                >
+                  ✎ edit
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -130,7 +149,19 @@ const Drawings = () => {
     </div>
   );
 
-  return <NotebookFrame leftPage={leftPage} rightPage={rightPage} />;
+  return (
+    <>
+      <NotebookFrame leftPage={leftPage} rightPage={rightPage} />
+      {editing && (
+        <EditContentDialog
+          type="drawing"
+          item={editing}
+          onClose={() => setEditing(null)}
+          onSaved={(updated) => { setEditing(null); setSelected(updated); load(); }}
+        />
+      )}
+    </>
+  );
 };
 
 export default Drawings;

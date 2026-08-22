@@ -175,6 +175,37 @@ class MessageIn(BaseModel):
     sender_descriptor: Optional[str] = ""
     message: str
 
+class DrawingUpdate(BaseModel):
+    title: Optional[str] = None
+    date: Optional[str] = None
+    image_path: Optional[str] = None
+    tags: Optional[List[str]] = None
+    description: Optional[str] = None
+
+class WritingUpdate(BaseModel):
+    title: Optional[str] = None
+    date: Optional[str] = None
+    content: Optional[str] = None
+    tags: Optional[List[str]] = None
+
+class VideoUpdate(BaseModel):
+    title: Optional[str] = None
+    date: Optional[str] = None
+    video_path: Optional[str] = None
+    external_url: Optional[str] = None
+    thumbnail_path: Optional[str] = None
+    tags: Optional[List[str]] = None
+    description: Optional[str] = None
+
+class MessageUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    website: Optional[str] = None
+    found_via: Optional[str] = None
+    sender_descriptor: Optional[str] = None
+    message: Optional[str] = None
+    approved: Optional[bool] = None
+
 class AdminUserIn(BaseModel):
     email: str
     password: str
@@ -291,6 +322,17 @@ async def delete_drawing(drawing_id: str, admin: dict = Depends(get_current_admi
         raise HTTPException(status_code=404, detail="Not found")
     return {"ok": True}
 
+@api_router.put("/drawings/{drawing_id}")
+async def update_drawing(drawing_id: str, body: DrawingUpdate, admin: dict = Depends(get_current_admin)):
+    payload = body.model_dump(exclude_none=True)
+    if not payload:
+        raise HTTPException(status_code=400, detail="no fields to update")
+    r = await db.drawings.update_one({"id": drawing_id}, {"$set": payload})
+    if r.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Not found")
+    doc = await db.drawings.find_one({"id": drawing_id}, {"_id": 0})
+    return doc
+
 # Writings
 @api_router.get("/writings")
 async def list_writings():
@@ -313,6 +355,17 @@ async def delete_writing(writing_id: str, admin: dict = Depends(get_current_admi
         raise HTTPException(status_code=404, detail="Not found")
     return {"ok": True}
 
+@api_router.put("/writings/{writing_id}")
+async def update_writing(writing_id: str, body: WritingUpdate, admin: dict = Depends(get_current_admin)):
+    payload = body.model_dump(exclude_none=True)
+    if not payload:
+        raise HTTPException(status_code=400, detail="no fields to update")
+    r = await db.writings.update_one({"id": writing_id}, {"$set": payload})
+    if r.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Not found")
+    doc = await db.writings.find_one({"id": writing_id}, {"_id": 0})
+    return doc
+
 # Videos
 @api_router.get("/videos")
 async def list_videos():
@@ -334,6 +387,17 @@ async def delete_video(video_id: str, admin: dict = Depends(get_current_admin)):
     if r.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Not found")
     return {"ok": True}
+
+@api_router.put("/videos/{video_id}")
+async def update_video(video_id: str, body: VideoUpdate, admin: dict = Depends(get_current_admin)):
+    payload = body.model_dump(exclude_none=True)
+    if not payload:
+        raise HTTPException(status_code=400, detail="no fields to update")
+    r = await db.videos.update_one({"id": video_id}, {"$set": payload})
+    if r.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Not found")
+    doc = await db.videos.find_one({"id": video_id}, {"_id": 0})
+    return doc
 
 # Messages
 @api_router.get("/messages")
@@ -389,6 +453,17 @@ async def delete_message(message_id: str, admin: dict = Depends(get_current_admi
     if r.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Not found")
     return {"ok": True}
+
+@api_router.put("/messages/{message_id}")
+async def update_message(message_id: str, body: MessageUpdate, admin: dict = Depends(get_current_admin)):
+    payload = body.model_dump(exclude_none=True)
+    if not payload:
+        raise HTTPException(status_code=400, detail="no fields to update")
+    r = await db.messages.update_one({"id": message_id}, {"$set": payload})
+    if r.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Not found")
+    doc = await db.messages.find_one({"id": message_id}, {"_id": 0})
+    return doc
 
 # Upload
 @api_router.post("/upload")

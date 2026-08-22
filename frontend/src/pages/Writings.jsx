@@ -1,18 +1,27 @@
 import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
+import { useLocation } from "react-router-dom";
 import { NotebookFrame, PageCorner, StickyNote } from "../components/notebook/NotebookShell";
 import AdminQuickAdd from "../components/AdminQuickAdd";
+import EditContentDialog from "../components/EditContentDialog";
+import { useAuth } from "../context/AuthContext";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const Writings = () => {
+  const { admin } = useAuth();
+  const location = useLocation();
   const [items, setItems] = useState([]);
   const [selected, setSelected] = useState(null);
   const [query, setQuery] = useState("");
+  const [editing, setEditing] = useState(null);
 
   const load = () => axios.get(`${API}/writings`).then((r) => {
     setItems(r.data);
-    if (r.data.length && !selected) setSelected(r.data[0]);
+    const preselectId = location.state?.selectId;
+    const picked = preselectId ? r.data.find((x) => x.id === preselectId) : null;
+    if (picked) setSelected(picked);
+    else if (r.data.length && !selected) setSelected(r.data[0]);
   });
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
@@ -44,6 +53,16 @@ const Writings = () => {
             <span className="tape tape-tl" />
             <div className="font-pixel uppercase text-xs tracking-widest text-[var(--ink-soft)]">{selected.date}</div>
             <div className="font-marker text-3xl text-[var(--ink-color)] leading-tight">"{selected.title}"</div>
+            {admin && (
+              <button
+                type="button"
+                className="pico-btn mt-2"
+                onClick={() => setEditing(selected)}
+                data-testid={`inline-edit-writing-${selected.id}`}
+              >
+                ✎ edit
+              </button>
+            )}
           </div>
           <div className="font-hand text-lg md:text-xl text-[var(--ink-color)] leading-loose whitespace-pre-wrap">
             {selected.content}
@@ -89,7 +108,19 @@ const Writings = () => {
     </div>
   );
 
-  return <NotebookFrame leftPage={leftPage} rightPage={rightPage} />;
+  return (
+    <>
+      <NotebookFrame leftPage={leftPage} rightPage={rightPage} />
+      {editing && (
+        <EditContentDialog
+          type="writing"
+          item={editing}
+          onClose={() => setEditing(null)}
+          onSaved={(updated) => { setEditing(null); setSelected(updated); load(); }}
+        />
+      )}
+    </>
+  );
 };
 
 export default Writings;

@@ -4,6 +4,8 @@ import { Navigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { NotebookFrame } from "../components/notebook/NotebookShell";
 import { resolveMediaUrl } from "../components/ProtectedImage";
+import UploadField from "../components/UploadField";
+import EditContentDialog from "../components/EditContentDialog";
 import { toast } from "sonner";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -23,36 +25,6 @@ const Section = ({ title, children }) => (
     {children}
   </section>
 );
-
-const UploadField = ({ label, onUploaded, accept, testId }) => {
-  const api = useAuthApi();
-  const [busy, setBusy] = useState(false);
-
-  const onPick = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setBusy(true);
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const { data } = await api.post(`/upload`, fd, { headers: { "Content-Type": "multipart/form-data" } });
-      onUploaded(data.storage_path);
-      toast(`uploaded ${file.name}`);
-    } catch (err) {
-      toast("upload failed.");
-    } finally {
-      setBusy(false);
-      e.target.value = "";
-    }
-  };
-
-  return (
-    <label className="pico-btn cursor-pointer inline-block" data-testid={testId}>
-      {busy ? "uploading..." : label}
-      <input type="file" className="hidden" accept={accept} onChange={onPick} />
-    </label>
-  );
-};
 
 const AdminPanel = () => {
   const { admin, token } = useAuth();
@@ -86,6 +58,9 @@ const AdminPanel = () => {
   });
   const [textSaving, setTextSaving] = useState({});
   const [purging, setPurging] = useState(false);
+  const [editing, setEditing] = useState({ type: null, item: null });
+  const openEdit = (type, item) => setEditing({ type, item });
+  const closeEdit = () => setEditing({ type: null, item: null });
 
   const loadAll = useCallback(async () => {
     const [mr, dr, wr, vr, sr, tr] = await Promise.all([
@@ -501,6 +476,7 @@ const AdminPanel = () => {
               </div>
               <div className="mt-2 flex gap-2">
                 {!m.approved && <button className="pico-btn" onClick={() => approve(m.id)} data-testid={`approve-msg-${m.id}`}>approve</button>}
+                <button className="pico-btn" onClick={() => openEdit("message", m)} data-testid={`edit-msg-${m.id}`}>edit</button>
                 <button className="pico-btn" onClick={() => delMsg(m.id)} data-testid={`delete-msg-${m.id}`}>delete</button>
               </div>
             </div>
@@ -524,7 +500,10 @@ const AdminPanel = () => {
           {drawings.map((it) => (
             <div key={it.id} className="flex items-center justify-between border-b border-[var(--ink-soft)] py-1">
               <span className="font-hand">{it.date} · "{it.title}"</span>
-              <button className="pico-btn" onClick={() => remove("drawings", it.id)} data-testid={`del-drawing-${it.id}`}>×</button>
+              <span className="flex gap-1">
+                <button className="pico-btn" onClick={() => openEdit("drawing", it)} data-testid={`edit-drawing-${it.id}`}>edit</button>
+                <button className="pico-btn" onClick={() => remove("drawings", it.id)} data-testid={`del-drawing-${it.id}`}>×</button>
+              </span>
             </div>
           ))}
         </div>
@@ -542,7 +521,10 @@ const AdminPanel = () => {
           {writings.map((it) => (
             <div key={it.id} className="flex items-center justify-between border-b border-[var(--ink-soft)] py-1">
               <span className="font-hand">{it.date} · "{it.title}"</span>
-              <button className="pico-btn" onClick={() => remove("writings", it.id)} data-testid={`del-writing-${it.id}`}>×</button>
+              <span className="flex gap-1">
+                <button className="pico-btn" onClick={() => openEdit("writing", it)} data-testid={`edit-writing-${it.id}`}>edit</button>
+                <button className="pico-btn" onClick={() => remove("writings", it.id)} data-testid={`del-writing-${it.id}`}>×</button>
+              </span>
             </div>
           ))}
         </div>
@@ -567,11 +549,23 @@ const AdminPanel = () => {
           {videos.map((it) => (
             <div key={it.id} className="flex items-center justify-between border-b border-[var(--ink-soft)] py-1">
               <span className="font-hand">{it.date} · "{it.title}"</span>
-              <button className="pico-btn" onClick={() => remove("videos", it.id)} data-testid={`del-video-${it.id}`}>×</button>
+              <span className="flex gap-1">
+                <button className="pico-btn" onClick={() => openEdit("video", it)} data-testid={`edit-video-${it.id}`}>edit</button>
+                <button className="pico-btn" onClick={() => remove("videos", it.id)} data-testid={`del-video-${it.id}`}>×</button>
+              </span>
             </div>
           ))}
         </div>
       </Section>
+
+      {editing.item && (
+        <EditContentDialog
+          type={editing.type}
+          item={editing.item}
+          onClose={closeEdit}
+          onSaved={() => { closeEdit(); loadAll(); }}
+        />
+      )}
     </div>
   );
 

@@ -238,6 +238,120 @@ class TestSiteSettings:
         assert r.status_code == 401
 
 
+# ---------------- NEW: PUT (partial update) endpoints ----------------
+class TestPutEndpoints:
+    def _make_drawing(self, api_client, admin_headers):
+        r = api_client.post(f"{BASE_URL}/api/drawings", json={
+            "title": "TEST_put_drawing", "date": "01/01/2026",
+            "image_path": "https://example.com/orig.jpg",
+            "tags": ["orig-tag"], "description": "orig desc",
+        }, headers=admin_headers)
+        assert r.status_code == 200
+        return r.json()
+
+    def test_put_drawing_requires_admin(self, api_client, admin_headers):
+        d = self._make_drawing(api_client, admin_headers)
+        r = api_client.put(f"{BASE_URL}/api/drawings/{d['id']}", json={"title": "hax"})
+        assert r.status_code == 401
+        api_client.delete(f"{BASE_URL}/api/drawings/{d['id']}", headers=admin_headers)
+
+    def test_put_drawing_partial_update(self, api_client, admin_headers):
+        d = self._make_drawing(api_client, admin_headers)
+        did = d["id"]
+        r = api_client.put(f"{BASE_URL}/api/drawings/{did}",
+                           json={"title": "TEST_put_drawing_v2", "tags": ["new-tag"]},
+                           headers=admin_headers)
+        assert r.status_code == 200, r.text
+        upd = r.json()
+        assert upd["title"] == "TEST_put_drawing_v2"
+        assert upd["tags"] == ["new-tag"]
+        # Other fields untouched
+        assert upd["description"] == "orig desc"
+        assert upd["image_path"] == "https://example.com/orig.jpg"
+        assert upd["date"] == "01/01/2026"
+        assert "_id" not in upd
+        # Public GET reflects
+        lst = api_client.get(f"{BASE_URL}/api/drawings").json()
+        found = next(x for x in lst if x["id"] == did)
+        assert found["title"] == "TEST_put_drawing_v2"
+        assert found["description"] == "orig desc"
+        api_client.delete(f"{BASE_URL}/api/drawings/{did}", headers=admin_headers)
+
+    def test_put_drawing_404(self, api_client, admin_headers):
+        r = api_client.put(f"{BASE_URL}/api/drawings/does-not-exist",
+                           json={"title": "x"}, headers=admin_headers)
+        assert r.status_code == 404
+
+    def test_put_drawing_empty_400(self, api_client, admin_headers):
+        d = self._make_drawing(api_client, admin_headers)
+        r = api_client.put(f"{BASE_URL}/api/drawings/{d['id']}", json={}, headers=admin_headers)
+        assert r.status_code == 400
+        api_client.delete(f"{BASE_URL}/api/drawings/{d['id']}", headers=admin_headers)
+
+    def test_put_writing_partial(self, api_client, admin_headers):
+        r = api_client.post(f"{BASE_URL}/api/writings", json={
+            "title": "TEST_put_writing", "date": "02/02/2026",
+            "content": "orig body", "tags": ["a"],
+        }, headers=admin_headers)
+        wid = r.json()["id"]
+        r = api_client.put(f"{BASE_URL}/api/writings/{wid}",
+                           json={"content": "new body", "tags": ["b", "c"]},
+                           headers=admin_headers)
+        assert r.status_code == 200
+        upd = r.json()
+        assert upd["content"] == "new body"
+        assert upd["tags"] == ["b", "c"]
+        assert upd["title"] == "TEST_put_writing"
+        assert upd["date"] == "02/02/2026"
+        # Auth-gate check
+        assert api_client.put(f"{BASE_URL}/api/writings/{wid}", json={"title": "x"}).status_code == 401
+        api_client.delete(f"{BASE_URL}/api/writings/{wid}", headers=admin_headers)
+
+    def test_put_video_partial(self, api_client, admin_headers):
+        r = api_client.post(f"{BASE_URL}/api/videos", json={
+            "title": "TEST_put_video", "date": "03/03/2026",
+            "external_url": "https://youtube.com/embed/aaa",
+            "tags": ["v"], "description": "orig",
+        }, headers=admin_headers)
+        vid = r.json()["id"]
+        r = api_client.put(f"{BASE_URL}/api/videos/{vid}",
+                           json={"description": "updated desc",
+                                 "external_url": "https://youtube.com/embed/bbb"},
+                           headers=admin_headers)
+        assert r.status_code == 200
+        upd = r.json()
+        assert upd["description"] == "updated desc"
+        assert upd["external_url"] == "https://youtube.com/embed/bbb"
+        assert upd["title"] == "TEST_put_video"
+        assert upd["tags"] == ["v"]
+        assert api_client.put(f"{BASE_URL}/api/videos/{vid}", json={"title": "x"}).status_code == 401
+        api_client.delete(f"{BASE_URL}/api/videos/{vid}", headers=admin_headers)
+
+    def test_put_message_partial_and_approve(self, api_client, admin_headers):
+        r = api_client.post(f"{BASE_URL}/api/messages", json={
+            "name": "TEST_putmsg", "email": "TEST_putmsg@example.com",
+            "website": "", "found_via": "pytest",
+            "sender_descriptor": "", "message": "orig text",
+        })
+        mid = r.json()["id"]
+        # Partial edit + toggle approved
+        r = api_client.put(f"{BASE_URL}/api/messages/{mid}",
+                           json={"message": "edited text", "approved": True},
+                           headers=admin_headers)
+        assert r.status_code == 200, r.text
+        upd = r.json()
+        assert upd["message"] == "edited text"
+        assert upd["approved"] is True
+        assert upd["name"] == "TEST_putmsg"
+        assert upd["email"] == "TEST_putmsg@example.com"
+        # Now visible on public list
+        pub = api_client.get(f"{BASE_URL}/api/messages").json()
+        assert any(x["id"] == mid and x["message"] == "edited text" for x in pub)
+        # Auth-gate check
+        assert api_client.put(f"{BASE_URL}/api/messages/{mid}", json={"message": "x"}).status_code == 401
+        api_client.delete(f"{BASE_URL}/api/messages/{mid}", headers=admin_headers)
+
+
 # ---------------- NEW: purge samples endpoint ----------------
 class TestPurgeSamples:
     def test_purge_requires_auth(self, api_client):
