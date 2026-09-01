@@ -48,7 +48,7 @@ const ImageLightbox = ({ item, onClose, onPrev, onNext, position }) => {
       aria-label={item.title || "image"}
     >
       <div
-        className="pico-window w-full max-w-5xl max-h-full flex flex-col"
+        className="pico-window w-full max-w-5xl max-h-full flex flex-col overflow-y-auto"
         onContextMenu={(e) => e.preventDefault()}
       >
         <div className="pico-titlebar">
@@ -62,9 +62,23 @@ const ImageLightbox = ({ item, onClose, onPrev, onNext, position }) => {
           <ProtectedImage
             src={item.image_path}
             alt={item.title}
-            className="max-w-full max-h-[75vh] w-auto h-auto object-contain"
+            className={`max-w-full ${item.description ? "max-h-[58vh]" : "max-h-[75vh]"} w-auto h-auto object-contain`}
           />
         </div>
+
+        {item.description && (
+          // Matches how the video player presents its description: pre-wrap so
+          // typed line breaks survive, height-capped so a long note scrolls
+          // rather than pushing the controls off screen.
+          <div className="px-3 pb-3 bg-[var(--bg-color)]" data-testid="image-description-panel">
+            <p
+              className="font-hand text-[var(--ink-color)] text-base md:text-lg leading-relaxed whitespace-pre-wrap max-h-[22vh] overflow-y-auto notebook-scroll"
+              data-testid="image-description"
+            >
+              {item.description}
+            </p>
+          </div>
+        )}
 
         <div className="border-t-2 border-[var(--ink-color)] bg-[var(--bg-deep)] p-2 flex flex-wrap gap-2 items-center">
           <span className="font-pixel uppercase text-[10px] tracking-widest text-[var(--ink-soft)]">
