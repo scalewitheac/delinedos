@@ -98,7 +98,13 @@ const load = () =>
           </div>
         </div>
       ) : (
-        <p className="font-hand text-[var(--ink-soft)]">{loading ? "loading..." : "no drawings yet."}</p>
+        <p className="font-hand text-[var(--ink-soft)]">
+          {loading
+            ? "loading..."
+            : items.length
+            ? "pick one from the index to view it."
+            : "no drawings yet."}
+        </p>
       )}
     </div>
   );

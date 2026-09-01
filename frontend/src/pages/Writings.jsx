@@ -73,7 +73,9 @@ const Writings = () => {
           </div>
         </article>
       ) : (
-        <p className="font-hand text-[var(--ink-soft)]">no writings yet.</p>
+        <p className="font-hand text-[var(--ink-soft)]">
+          {items.length ? "pick one from the index to read it." : "no writings yet."}
+        </p>
       )}
     </div>
   );
