@@ -5,8 +5,9 @@ import { useAuth } from "../../context/AuthContext";
 import { resolveMediaUrl } from "../ProtectedImage";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
-const FALLBACK_BOOKMARK =
-  "https://customer-assets.emergentagent.com/job_creative-canvas-602/artifacts/twxxbarm_Untitled_Artwork.PNG";
+// No third-party fallback: the bookmark comes from site settings, and if it
+// has not been set the ribbon simply renders without an image.
+const FALLBACK_BOOKMARK = "";
 
 export const RibbonBookmark = () => {
   const location = useLocation();

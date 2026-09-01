@@ -59,6 +59,7 @@ const AdminPanel = () => {
   });
   const [textSaving, setTextSaving] = useState({});
   const [purging, setPurging] = useState(false);
+  const [migrating, setMigrating] = useState(false);
   const [editing, setEditing] = useState({ type: null, item: null });
   const openEdit = (type, item) => setEditing({ type, item });
   const closeEdit = () => setEditing({ type: null, item: null });
@@ -174,6 +175,28 @@ const AdminPanel = () => {
       list.splice(idx, 1);
       return { ...s, [group]: { ...s[group], [key]: list } };
     });
+
+  const migrateAssets = async (dryRun) => {
+    if (!dryRun && !window.confirm("Copy externally-hosted images into your own storage and repoint the site at your copies? Your originals are left where they are; nothing is deleted.")) return;
+    setMigrating(true);
+    try {
+      const { data } = await api.post(`/admin/migrate-assets?dry_run=${dryRun ? "true" : "false"}`);
+      if (!data.moved_count) {
+        toast("nothing to move — everything is already in your own storage");
+      } else if (dryRun) {
+        toast(`${data.moved_count} file(s) would move into your storage`);
+        console.log("[migrate-assets] would move:", data.moved);
+      } else {
+        toast(`moved ${data.moved_count} file(s)${data.failed_count ? ` · ${data.failed_count} failed` : ""}`);
+        if (data.failed_count) console.warn("[migrate-assets] failed:", data.failed);
+        loadAll();
+      }
+    } catch (e) {
+      toast(e?.response?.data?.detail || "migration failed");
+    } finally {
+      setMigrating(false);
+    }
+  };
 
   const purgeSamples = async () => {
     if (!window.confirm("Delete the built-in sample drawings / writings / videos / message from the database? This only removes the template rows, not anything you created.")) return;
@@ -457,6 +480,35 @@ const AdminPanel = () => {
           >
             {purging ? "purging..." : "purge sample content"}
           </button>
+        </div>
+
+        <div className="flex flex-wrap items-start gap-4 mt-6 pt-6 border-t border-[var(--ink-soft)]">
+          <div className="max-w-lg">
+            <div className="font-pixel uppercase text-xs tracking-widest text-[var(--ink-color)] mb-1">bring external images into your own storage</div>
+            <p className="font-hand text-sm text-[var(--ink-soft)]">
+              Some images are still loaded from someone else's server and would break if that host goes away. This copies them into your own bucket and repoints the site at your copies. Check first shows what would move without changing anything. Safe to run more than once.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2">
+            <button
+              type="button"
+              className="pico-btn"
+              onClick={() => migrateAssets(true)}
+              disabled={migrating}
+              data-testid="migrate-assets-check-btn"
+            >
+              {migrating ? "working..." : "check what would move"}
+            </button>
+            <button
+              type="button"
+              className="pico-btn"
+              onClick={() => migrateAssets(false)}
+              disabled={migrating}
+              data-testid="migrate-assets-btn"
+            >
+              {migrating ? "working..." : "move them into my storage"}
+            </button>
+          </div>
         </div>
       </Section>
 

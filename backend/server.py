@@ -549,7 +549,22 @@ async def upload_file(file: UploadFile = File(...), admin: dict = Depends(get_cu
     return {"id": file_id, "storage_path": result["path"], "content_type": content_type}
 
 # Site image settings
+# No third-party defaults. Every slot is empty until an admin sets it or the
+# asset migration fills it in, so the running site never requests an image from
+# a host we do not control.
 DEFAULT_SITE_IMAGES = {
+    "artist_image_path": "",
+    "hub_background_path": "",
+    "disclaimer_button_path": "",
+    "about_bookmark_path": "",
+}
+
+# The externally-hosted images this site originally shipped with. These are NOT
+# served — they exist only so /admin/migrate-assets can rescue a copy of each
+# into our own bucket for any slot that has never been set. Once migrated (or
+# replaced by an upload) they are never referenced again, and they can be
+# deleted from this file entirely.
+LEGACY_ASSET_FALLBACKS = {
     "artist_image_path": "https://images.pexels.com/photos/29861519/pexels-photo-29861519.jpeg?auto=compress&cs=tinysrgb&w=900",
     "hub_background_path": "https://customer-assets.emergentagent.com/job_creative-canvas-602/artifacts/df20ee9o_15187.jpg",
     "disclaimer_button_path": "https://customer-assets.emergentagent.com/job_creative-canvas-602/artifacts/43b6fv8r_Untitled%20design%20%281%29.png",
@@ -729,9 +744,10 @@ async def download_file(path: str):
 
 # -------------------- Seed & startup --------------------
 async def seed_admin():
-    # Remove legacy admin (rebrand)
-    await db.users.delete_one({"email": "scalewitheac@gmail.com"})
-
+    # NOTE: a one-off rebrand cleanup used to hard-delete a hardcoded legacy
+    # admin address here on every boot. Removed — deleting user rows on every
+    # deploy is not safe, and if ADMIN_EMAIL were ever set to that same address
+    # the account would be dropped and silently recreated from env each restart.
     existing = await db.users.find_one({"email": ADMIN_EMAIL})
     if not existing:
         await db.users.insert_one({
@@ -759,6 +775,138 @@ SAMPLE_VIDEO_TITLES = ["timelapse-rabbit"]
 SAMPLE_MESSAGE_MARKERS = [
     {"name": "anon", "email": "anon@example.com"},
 ]
+
+EXTERNAL_HOSTS_TO_REHOST = ("emergentagent.com", "emergent.host", "emergent.sh")
+
+
+def _needs_rehost(value: Optional[str], include_all: bool) -> bool:
+    """True when a stored path is an external URL we should pull into our own
+    bucket. Non-URLs are already storage paths. Video embed links (YouTube etc)
+    are deliberately left alone — those are links, not assets we host."""
+    if not value or not isinstance(value, str):
+        return False
+    if not value.startswith(("http://", "https://")):
+        return False
+    low = value.lower()
+    if any(h in low for h in ("youtube.com", "youtu.be", "vimeo.com", "tiktok.com")):
+        return False
+    if include_all:
+        return True
+    return any(h in low for h in EXTERNAL_HOSTS_TO_REHOST)
+
+
+async def _rehost(url: str) -> Optional[str]:
+    """Download an external asset into our bucket. Returns the new storage
+    path, or None if it could not be fetched."""
+    try:
+        resp = requests.get(url, timeout=60)
+        resp.raise_for_status()
+    except Exception as e:
+        logger.warning(f"rehost: could not fetch {url}: {e}")
+        return None
+
+    content_type = resp.headers.get("Content-Type", "application/octet-stream").split(";")[0].strip()
+    ext = {
+        "image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png",
+        "image/gif": "gif", "image/webp": "webp", "image/svg+xml": "svg",
+        "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov",
+    }.get(content_type)
+    if not ext:
+        tail = url.split("?")[0].rsplit(".", 1)
+        ext = tail[1].lower()[:5] if len(tail) == 2 and len(tail[1]) <= 5 else "bin"
+
+    file_id = str(uuid.uuid4())
+    path = f"{APP_NAME}/uploads/{file_id}.{ext}"
+    data = resp.content
+    put_object(path, data, content_type)
+    await db.files.insert_one({
+        "id": file_id,
+        "storage_path": path,
+        "original_filename": url.split("/")[-1].split("?")[0],
+        "content_type": content_type,
+        "size": len(data),
+        "is_deleted": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "rehosted_from": url,
+    })
+    return path
+
+
+@api_router.post("/admin/migrate-assets")
+async def migrate_assets(
+    include_all: bool = Query(False, description="Also pull non-Emergent external URLs (e.g. stock photos) into the bucket"),
+    dry_run: bool = Query(False, description="Report what would move without changing anything"),
+    admin: dict = Depends(get_current_admin),
+):
+    """Pull externally-hosted assets into our own object storage so the site
+    stops depending on anyone else's CDN staying up. Safe to run repeatedly —
+    anything already stored as a local storage path is skipped."""
+    if not storage_configured():
+        raise HTTPException(status_code=503, detail="Storage not configured — set the R2_* variables first")
+
+    moved, failed, skipped = [], [], 0
+
+    # 1. Site image settings. An unset slot falls back to the legacy asset so a
+    # copy is rescued into our bucket before those URLs disappear.
+    images = await _load_site_images()
+    image_updates = {}
+    for key in DEFAULT_SITE_IMAGES:
+        val = images.get(key) or LEGACY_ASSET_FALLBACKS.get(key, "")
+        if not _needs_rehost(val, include_all):
+            skipped += 1
+            continue
+        if dry_run:
+            moved.append({"where": f"settings.images.{key}", "from": val, "to": "(dry run)"})
+            continue
+        new_path = await _rehost(val)
+        if new_path:
+            image_updates[key] = new_path
+            moved.append({"where": f"settings.images.{key}", "from": val, "to": new_path})
+        else:
+            failed.append({"where": f"settings.images.{key}", "url": val})
+    if image_updates:
+        await db.settings.update_one(
+            {"key": "images"},
+            {"$set": {"key": "images", **image_updates,
+                      "updated_at": datetime.now(timezone.utc).isoformat(),
+                      "updated_by": admin.get("email")}},
+            upsert=True,
+        )
+
+    # 2. Content rows
+    for coll, fields in (
+        ("drawings", ("image_path",)),
+        ("videos", ("video_path", "thumbnail_path")),
+    ):
+        async for doc in db[coll].find({}):
+            updates = {}
+            for field in fields:
+                val = doc.get(field)
+                if not _needs_rehost(val, include_all):
+                    skipped += 1
+                    continue
+                if dry_run:
+                    moved.append({"where": f"{coll}.{doc.get('id')}.{field}", "from": val, "to": "(dry run)"})
+                    continue
+                new_path = await _rehost(val)
+                if new_path:
+                    updates[field] = new_path
+                    moved.append({"where": f"{coll}.{doc.get('id')}.{field}", "from": val, "to": new_path})
+                else:
+                    failed.append({"where": f"{coll}.{doc.get('id')}.{field}", "url": val})
+            if updates:
+                await db[coll].update_one({"id": doc.get("id")}, {"$set": updates})
+
+    return {
+        "ok": True,
+        "dry_run": dry_run,
+        "moved_count": len(moved),
+        "failed_count": len(failed),
+        "already_local_or_skipped": skipped,
+        "moved": moved,
+        "failed": failed,
+    }
+
 
 @api_router.post("/admin/purge-samples")
 async def purge_samples(admin: dict = Depends(get_current_admin)):

@@ -5,8 +5,9 @@ import { useAuth } from "../context/AuthContext";
 import { resolveMediaUrl } from "../components/ProtectedImage";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
-const FALLBACK_BTN =
-  "https://customer-assets.emergentagent.com/job_creative-canvas-602/artifacts/43b6fv8r_Untitled%20design%20%281%29.png";
+// No third-party fallback: the button image comes from site settings; without
+// one the disclaimer falls back to its plain text button.
+const FALLBACK_BTN = "";
 
 const DEFAULT_TEXT = {
   heading: "Disclaimer",
