@@ -38,7 +38,7 @@ const useClock = () => {
 const Hub = () => {
   const navigate = useNavigate();
   const clock = useClock();
-  const { admin } = useAuth();
+  const { admin, token } = useAuth();
   const [cursor, setCursor] = useState(0);
   const [booting, setBooting] = useState(true);
   const [shell, setShell] = useState(() => localStorage.getItem("device-shell") || "mauve");
@@ -264,7 +264,7 @@ const Hub = () => {
 
           <div className="ab-buttons" aria-hidden="false">
             <Link to="/contact"     className="ab-button" data-testid="device-a-btn" title="multiplayer"    onClick={() => sfx.click()}>A</Link>
-            <Link to="/admin/login" className="ab-button" data-testid="device-b-btn" title="operator"    onClick={() => sfx.click()}>B</Link>
+            <Link to={token ? "/admin" : "/admin/login"} className="ab-button" data-testid="device-b-btn" title={token ? "operator panel" : "operator"}    onClick={() => sfx.click()}>B</Link>
           </div>
         </div>
 

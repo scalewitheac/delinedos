@@ -1,14 +1,19 @@
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Navigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { NotebookFrame } from "../components/notebook/NotebookShell";
 
 const AdminLogin = () => {
-  const { login } = useAuth();
+  const { login, token } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+
+  // Already signed in — go straight to the panel instead of asking again.
+  // The token is restored from localStorage on load, so this also covers
+  // returning to the site in a new tab or after a refresh.
+  if (token) return <Navigate to="/admin" replace />;
 
   const submit = async (e) => {
     e.preventDefault();

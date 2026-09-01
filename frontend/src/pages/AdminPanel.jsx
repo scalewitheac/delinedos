@@ -6,6 +6,7 @@ import { NotebookFrame } from "../components/notebook/NotebookShell";
 import { resolveMediaUrl } from "../components/ProtectedImage";
 import UploadField from "../components/UploadField";
 import EditContentDialog from "../components/EditContentDialog";
+import DateField from "../components/DateField";
 import { toast } from "sonner";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -487,7 +488,7 @@ const AdminPanel = () => {
       <Section title="Add Drawing">
         <form onSubmit={addDrawing} className="grid grid-cols-1 sm:grid-cols-2 gap-3" data-testid="add-drawing-form">
           <input className="pico-input font-hand" placeholder="title" value={d.title} onChange={(e) => setD({ ...d, title: e.target.value })} data-testid="drawing-title-input" />
-          <input className="pico-input font-hand" placeholder="MM/DD/YYYY" value={d.date} onChange={(e) => setD({ ...d, date: e.target.value })} data-testid="drawing-date-input" />
+          <DateField value={d.date} onChange={(val) => setD({ ...d, date: val })} data-testid="drawing-date-input" />
           <input className="pico-input font-hand sm:col-span-2" placeholder="image storage_path or URL" value={d.image_path} onChange={(e) => setD({ ...d, image_path: e.target.value })} data-testid="drawing-image-input" />
           <input className="pico-input font-hand sm:col-span-2" placeholder="tags (comma separated)" value={d.tags} onChange={(e) => setD({ ...d, tags: e.target.value })} data-testid="drawing-tags-input" />
           <textarea className="pico-input font-hand sm:col-span-2 min-h-[60px]" placeholder="description" value={d.description} onChange={(e) => setD({ ...d, description: e.target.value })} data-testid="drawing-desc-input" />
@@ -512,7 +513,7 @@ const AdminPanel = () => {
       <Section title="Add Writing">
         <form onSubmit={addWriting} className="grid grid-cols-1 sm:grid-cols-2 gap-3" data-testid="add-writing-form">
           <input className="pico-input font-hand" placeholder="title" value={w.title} onChange={(e) => setW({ ...w, title: e.target.value })} data-testid="writing-title-input" />
-          <input className="pico-input font-hand" placeholder="MM/DD/YYYY" value={w.date} onChange={(e) => setW({ ...w, date: e.target.value })} data-testid="writing-date-input" />
+          <DateField value={w.date} onChange={(val) => setW({ ...w, date: val })} data-testid="writing-date-input" />
           <input className="pico-input font-hand sm:col-span-2" placeholder="tags (comma separated)" value={w.tags} onChange={(e) => setW({ ...w, tags: e.target.value })} data-testid="writing-tags-input" />
           <textarea className="pico-input font-hand sm:col-span-2 min-h-[140px]" placeholder="content" value={w.content} onChange={(e) => setW({ ...w, content: e.target.value })} data-testid="writing-content-input" />
           <div className="sm:col-span-2"><button type="submit" className="pico-btn" data-testid="writing-submit-btn">add writing</button></div>
@@ -533,7 +534,7 @@ const AdminPanel = () => {
       <Section title="Add Video">
         <form onSubmit={addVideo} className="grid grid-cols-1 sm:grid-cols-2 gap-3" data-testid="add-video-form">
           <input className="pico-input font-hand" placeholder="title" value={v.title} onChange={(e) => setV({ ...v, title: e.target.value })} data-testid="video-title-input" />
-          <input className="pico-input font-hand" placeholder="MM/DD/YYYY" value={v.date} onChange={(e) => setV({ ...v, date: e.target.value })} data-testid="video-date-input" />
+          <DateField value={v.date} onChange={(val) => setV({ ...v, date: val })} data-testid="video-date-input" />
           <input className="pico-input font-hand sm:col-span-2" placeholder="external url (paste any youtube/vimeo link) — leave empty if uploading" value={v.external_url} onChange={(e) => setV({ ...v, external_url: e.target.value })} data-testid="video-url-input" />
           <input className="pico-input font-hand sm:col-span-2" placeholder="video storage_path (filled by upload)" value={v.video_path} onChange={(e) => setV({ ...v, video_path: e.target.value })} data-testid="video-path-input" />
           <input className="pico-input font-hand sm:col-span-2" placeholder="thumbnail storage_path or URL" value={v.thumbnail_path} onChange={(e) => setV({ ...v, thumbnail_path: e.target.value })} data-testid="video-thumb-input" />

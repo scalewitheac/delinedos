@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import axios from "axios";
 import { useAuth } from "../context/AuthContext";
 import { toast } from "sonner";
+import DateField from "./DateField";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -146,11 +147,10 @@ const AdminQuickAdd = ({ type, onAdded }) => {
               onChange={(e) => setTitle(e.target.value)}
               data-testid={`quick-${type}-title`}
             />
-            <input
-              className="pico-input font-hand"
-              placeholder={`date — defaults to ${todayStr()}`}
+            <DateField
               value={date}
-              onChange={(e) => setDate(e.target.value)}
+              onChange={setDate}
+              title={`date — defaults to ${todayStr()}`}
               data-testid={`quick-${type}-date`}
             />
             <input

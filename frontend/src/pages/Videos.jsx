@@ -15,6 +15,35 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 // here at render time. Doing it here rather than on save means videos already
 // stored with a watch URL start working too. Anything unrecognised is passed
 // through untouched.
+// Pulls the bare YouTube video id out of any of its link shapes, including an
+// already-converted /embed/ URL. Returns null for non-YouTube links.
+export const youtubeId = (raw) => {
+  if (!raw) return null;
+  let u;
+  try {
+    u = new URL(String(raw).trim());
+  } catch {
+    return null;
+  }
+  const host = u.hostname.replace(/^www\./, "").toLowerCase();
+  if (host === "youtu.be") return u.pathname.slice(1).split("/")[0] || null;
+  if (!host.endsWith("youtube.com") && !host.endsWith("youtube-nocookie.com")) return null;
+  if (u.pathname === "/watch") return u.searchParams.get("v");
+  const seg = u.pathname.split("/");
+  if (["/shorts/", "/live/", "/embed/"].some((p) => u.pathname.startsWith(p))) return seg[2] || null;
+  return null;
+};
+
+// Poster frame for a video card. Prefers an explicitly uploaded thumbnail,
+// otherwise falls back to YouTube's own poster image so cards are never blank.
+// hqdefault exists for every video; maxresdefault often 404s.
+export const videoPosterUrl = (item) => {
+  if (!item) return null;
+  if (item.thumbnail_path) return item.thumbnail_path;
+  const id = youtubeId(item.external_url);
+  return id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : null;
+};
+
 export const toEmbedUrl = (raw) => {
   if (!raw) return "";
   const url = String(raw).trim();
@@ -29,14 +58,7 @@ export const toEmbedUrl = (raw) => {
   // Already an embeddable form.
   if (u.pathname.startsWith("/embed/") || u.pathname.startsWith("/video/")) return url;
 
-  let id = null;
-  if (host === "youtu.be") {
-    id = u.pathname.slice(1).split("/")[0];
-  } else if (host.endsWith("youtube.com") || host.endsWith("youtube-nocookie.com")) {
-    if (u.pathname === "/watch") id = u.searchParams.get("v");
-    else if (u.pathname.startsWith("/shorts/")) id = u.pathname.split("/")[2];
-    else if (u.pathname.startsWith("/live/")) id = u.pathname.split("/")[2];
-  }
+  const id = youtubeId(url);
   if (id) {
     const start = u.searchParams.get("t") || u.searchParams.get("start");
     const secs = start ? String(start).replace(/[^0-9]/g, "") : "";
@@ -243,10 +265,14 @@ const Videos = () => {
             <div className="font-pixel uppercase text-[10px] tracking-widest text-[var(--ink-soft)]">{it.date}</div>
             <div className="font-marker text-xl text-[var(--ink-color)] leading-tight">"{it.title}"</div>
             <div className="mt-2 aspect-video bg-[var(--bg-color)] border-2 border-[var(--ink-color)] relative overflow-hidden">
-              {it.thumbnail_path ? (
-                <ProtectedImage src={it.thumbnail_path} alt={it.title} className="w-full h-full object-cover" />
+              {videoPosterUrl(it) ? (
+                <ProtectedImage src={videoPosterUrl(it)} alt={it.title} className="w-full h-full object-cover" />
               ) : (
-                <div className="w-full h-full bg-[var(--bg-deep)]" />
+                <div className="w-full h-full bg-[var(--bg-deep)] flex items-center justify-center">
+                  <span className="font-pixel uppercase text-[10px] tracking-widest text-[var(--ink-soft)] px-2 text-center">
+                    {it.title}
+                  </span>
+                </div>
               )}
               <div className="absolute inset-0 flex items-center justify-center">
                 <span className="pico-btn">▶ play</span>

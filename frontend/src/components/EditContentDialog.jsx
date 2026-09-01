@@ -3,6 +3,7 @@ import axios from "axios";
 import { toast } from "sonner";
 import { resolveMediaUrl } from "./ProtectedImage";
 import UploadField from "./UploadField";
+import DateField from "./DateField";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -114,10 +115,9 @@ const EditContentDialog = ({ type, item, onClose, onSaved }) => {
               </label>
               <label className="block">
                 <span className="font-pixel uppercase text-[10px] text-[var(--ink-soft)]">date</span>
-                <input className="pico-input font-hand w-full" data-testid={`edit-${type}-date`}
-                  placeholder="MM/DD/YYYY"
+                <DateField className="w-full" data-testid={`edit-${type}-date`}
                   value={form.date || ""}
-                  onChange={(e) => setField("date", e.target.value)} />
+                  onChange={(val) => setField("date", val)} />
               </label>
               <label className="block">
                 <span className="font-pixel uppercase text-[10px] text-[var(--ink-soft)]">tags (comma separated, without #)</span>
