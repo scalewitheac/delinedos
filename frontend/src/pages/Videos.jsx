@@ -44,6 +44,64 @@ export const videoPosterUrl = (item) => {
   return id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : null;
 };
 
+/**
+ * Preview frame for a video card, in order of preference:
+ *   1. a thumbnail the admin uploaded
+ *   2. YouTube's own poster, derived from the video id
+ *   3. for an uploaded file, a frame pulled from the video itself
+ *   4. the title, if none of the above is possible
+ *
+ * Case 3 renders a muted <video preload="metadata"> rather than an <img>:
+ * an uploaded file has no poster image anywhere, so the only frame available
+ * is one the browser decodes. preload="metadata" fetches just the header and
+ * enough to show a frame, not the whole file, and those bytes come straight
+ * from the bucket (the API redirects video to a presigned URL), so this does
+ * not stream through the backend.
+ */
+export const VideoPoster = ({ item, className = "" }) => {
+  const poster = videoPosterUrl(item);
+
+  if (poster) {
+    return <ProtectedImage src={poster} alt={item.title} className={className} />;
+  }
+
+  if (item?.video_path) {
+    return (
+      <video
+        // The media fragment asks for a frame slightly in, because frame zero
+        // of a lot of footage is black.
+        src={`${resolveMediaUrl(item.video_path)}#t=0.5`}
+        className={className}
+        preload="metadata"
+        muted
+        playsInline
+        tabIndex={-1}
+        aria-label={item.title}
+        controls={false}
+        onContextMenu={(e) => e.preventDefault()}
+        onLoadedMetadata={(e) => {
+          // Safari and some Android builds ignore the #t fragment, so nudge
+          // the frame manually once metadata is in.
+          const el = e.currentTarget;
+          try {
+            if (el.currentTime < 0.1 && el.duration && el.duration > 0.6) el.currentTime = 0.5;
+          } catch {
+            /* seeking can throw if the stream is not seekable — keep frame 0 */
+          }
+        }}
+      />
+    );
+  }
+
+  return (
+    <div className="w-full h-full bg-[var(--bg-deep)] flex items-center justify-center">
+      <span className="font-pixel uppercase text-[10px] tracking-widest text-[var(--ink-soft)] px-2 text-center">
+        {item?.title}
+      </span>
+    </div>
+  );
+};
+
 export const toEmbedUrl = (raw) => {
   if (!raw) return "";
   const url = String(raw).trim();
@@ -265,15 +323,7 @@ const Videos = () => {
             <div className="font-pixel uppercase text-[10px] tracking-widest text-[var(--ink-soft)]">{it.date}</div>
             <div className="font-marker text-xl text-[var(--ink-color)] leading-tight">"{it.title}"</div>
             <div className="mt-2 aspect-video bg-[var(--bg-color)] border-2 border-[var(--ink-color)] relative overflow-hidden">
-              {videoPosterUrl(it) ? (
-                <ProtectedImage src={videoPosterUrl(it)} alt={it.title} className="w-full h-full object-cover" />
-              ) : (
-                <div className="w-full h-full bg-[var(--bg-deep)] flex items-center justify-center">
-                  <span className="font-pixel uppercase text-[10px] tracking-widest text-[var(--ink-soft)] px-2 text-center">
-                    {it.title}
-                  </span>
-                </div>
-              )}
+              <VideoPoster item={it} className="w-full h-full object-cover" />
               <div className="absolute inset-0 flex items-center justify-center">
                 <span className="pico-btn">▶ play</span>
               </div>
