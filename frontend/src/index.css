@@ -1193,3 +1193,19 @@
 }
 .back-pill:hover { transform: translate(-1px, -1px); box-shadow: 3px 3px 0 var(--ink-color); }
 .back-pill:active { transform: translate(2px, 2px); box-shadow: 0 0 0 var(--ink-color); }
+
+/* --- Media save deterrents (see components/ContentProtection.jsx) ---------
+   Applied only while the .protect-media class is on <html>, which the
+   ContentProtection component adds for visitors and removes for signed-in
+   admins. -webkit-touch-callout is the one that matters on iOS: without it a
+   long press offers "Add to Photos" regardless of any JS handler. */
+.protect-media img,
+.protect-media video {
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+  -khtml-user-drag: none;
+  -moz-user-drag: none;
+  user-drag: none;
+  -webkit-user-select: none;
+  user-select: none;
+}

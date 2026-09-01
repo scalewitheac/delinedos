@@ -50,7 +50,10 @@ R2_ACCESS_KEY_ID = os.environ.get('R2_ACCESS_KEY_ID', '')
 R2_SECRET_ACCESS_KEY = os.environ.get('R2_SECRET_ACCESS_KEY', '')
 # Videos are redirected to short-lived presigned URLs instead of being proxied,
 # so large files stream straight from the bucket (no egress through this service).
-PRESIGN_TTL_SECONDS = int(os.environ.get('PRESIGN_TTL_SECONDS', '3600'))
+# Kept deliberately short: a link copied out of the network tab stops working in
+# minutes rather than being shareable for an hour. Long enough to watch a video
+# through, since the URL only has to be valid when playback starts.
+PRESIGN_TTL_SECONDS = int(os.environ.get('PRESIGN_TTL_SECONDS', '600'))
 MESSAGE_EMAIL = os.environ.get('MESSAGE_EMAIL', '')
 EMAIL_FROM = os.environ.get('EMAIL_FROM', 'delined <onboarding@resend.dev>')
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '')
@@ -130,7 +133,13 @@ def presign_object(path: str, expires: int = None) -> Optional[str]:
     try:
         return s3.generate_presigned_url(
             "get_object",
-            Params={"Bucket": R2_BUCKET, "Key": path},
+            Params={
+                "Bucket": R2_BUCKET,
+                "Key": path,
+                # Ask the browser to play the file rather than offer a save
+                # dialog if the URL is opened directly.
+                "ResponseContentDisposition": "inline",
+            },
             ExpiresIn=expires or PRESIGN_TTL_SECONDS,
         )
     except ClientError as e:
@@ -740,7 +749,13 @@ async def download_file(path: str):
 
     data, content_type = get_object(path)
     record_ct = recorded_ct or content_type
-    return StreamingResponse(io.BytesIO(data), media_type=record_ct)
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type=record_ct,
+        # Display in place rather than prompting a download if someone opens
+        # the file URL directly.
+        headers={"Content-Disposition": "inline"},
+    )
 
 # -------------------- Seed & startup --------------------
 async def seed_admin():

@@ -6,6 +6,7 @@ import "./App.css";
 
 import { ThemeProvider } from "./context/ThemeContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import ContentProtection from "./components/ContentProtection";
 
 import PasswordGate from "./pages/PasswordGate";
 import Disclaimer from "./pages/Disclaimer";
@@ -62,6 +63,7 @@ function AppShell() {
   const toastOptions = useMemo(() => ({ className: "font-hand" }), []);
   return (
     <BrowserRouter>
+      <ContentProtection />
       <Layout />
       <Routes>
         <Route path="/" element={<PasswordGate />} />
