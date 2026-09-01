@@ -108,7 +108,7 @@ const SearchResults = () => {
                     <div className="font-marker text-lg text-[var(--ink-color)] leading-tight">"{it.title}"</div>
                     {it.image_path && (
                       <div className="mt-2 aspect-[4/3] bg-[var(--bg-color)] border-2 border-[var(--ink-color)] overflow-hidden">
-                        <ProtectedImage src={it.image_path} alt={it.title} className="w-full h-full object-cover" />
+                        <ProtectedImage src={it.image_path} size="thumb" alt={it.title} className="w-full h-full object-cover" />
                       </div>
                     )}
                     <div className="mt-2 flex flex-wrap gap-1">
@@ -166,7 +166,7 @@ const SearchResults = () => {
                     <div className="font-marker text-lg text-[var(--ink-color)] leading-tight">"{it.title}"</div>
                     {it.thumbnail_path && (
                       <div className="mt-2 aspect-video bg-[var(--bg-color)] border-2 border-[var(--ink-color)] overflow-hidden">
-                        <ProtectedImage src={it.thumbnail_path} alt={it.title} className="w-full h-full object-cover" />
+                        <ProtectedImage src={it.thumbnail_path} size="thumb" alt={it.title} className="w-full h-full object-cover" />
                       </div>
                     )}
                     <div className="mt-2 flex flex-wrap gap-1">

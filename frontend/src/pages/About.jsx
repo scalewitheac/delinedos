@@ -49,6 +49,8 @@ const About = () => {
         <span className="tape tape-tr" />
         <ProtectedImage
           src={artistImg}
+          size="md"
+          loading="eager"
           alt="artist"
           className="w-72 h-80 object-cover"
         />

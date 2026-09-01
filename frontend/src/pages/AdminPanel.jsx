@@ -60,6 +60,7 @@ const AdminPanel = () => {
   const [textSaving, setTextSaving] = useState({});
   const [purging, setPurging] = useState(false);
   const [migrating, setMigrating] = useState(false);
+  const [resizing, setResizing] = useState(false);
   const [editing, setEditing] = useState({ type: null, item: null });
   const openEdit = (type, item) => setEditing({ type, item });
   const closeEdit = () => setEditing({ type: null, item: null });
@@ -195,6 +196,27 @@ const AdminPanel = () => {
       toast(e?.response?.data?.detail || "migration failed");
     } finally {
       setMigrating(false);
+    }
+  };
+
+  const generateDerivatives = async (dryRun) => {
+    setResizing(true);
+    try {
+      const { data } = await api.post(`/admin/generate-derivatives?dry_run=${dryRun ? "true" : "false"}`);
+      if (!data.generated_count) {
+        toast("nothing to resize — every image already has its smaller sizes");
+      } else if (dryRun) {
+        toast(`${data.generated_count} image(s) would get smaller sizes`);
+        console.log("[generate-derivatives] would build:", data.generated);
+      } else {
+        toast(`resized ${data.generated_count} image(s)${data.failed_count ? ` · ${data.failed_count} failed` : ""}`);
+        console.log("[generate-derivatives] built:", data.generated);
+        if (data.failed_count) console.warn("[generate-derivatives] failed:", data.failed);
+      }
+    } catch (e) {
+      toast(e?.response?.data?.detail || "resize failed");
+    } finally {
+      setResizing(false);
     }
   };
 
@@ -507,6 +529,23 @@ const AdminPanel = () => {
               data-testid="migrate-assets-btn"
             >
               {migrating ? "working..." : "move them into my storage"}
+            </button>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-start gap-4 mt-6 pt-6 border-t border-[var(--ink-soft)]">
+          <div className="max-w-lg">
+            <div className="font-pixel uppercase text-xs tracking-widest text-[var(--ink-color)] mb-1">make smaller copies of your images</div>
+            <p className="font-hand text-sm text-[var(--ink-soft)]">
+              Pages currently load full-size images even for small thumbnails, which is slow on a phone. This makes small and medium copies so the site loads the right one. Your originals are untouched and still used full-size when an image is opened. Safe to run more than once.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2">
+            <button type="button" className="pico-btn" onClick={() => generateDerivatives(true)} disabled={resizing} data-testid="generate-derivatives-check-btn">
+              {resizing ? "working..." : "check what needs resizing"}
+            </button>
+            <button type="button" className="pico-btn" onClick={() => generateDerivatives(false)} disabled={resizing} data-testid="generate-derivatives-btn">
+              {resizing ? "working..." : "make the smaller copies"}
             </button>
           </div>
         </div>

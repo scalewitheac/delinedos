@@ -62,7 +62,7 @@ export const VideoPoster = ({ item, className = "" }) => {
   const poster = videoPosterUrl(item);
 
   if (poster) {
-    return <ProtectedImage src={poster} alt={item.title} className={className} />;
+    return <ProtectedImage src={poster} size="thumb" alt={item.title} className={className} />;
   }
 
   if (item?.video_path) {

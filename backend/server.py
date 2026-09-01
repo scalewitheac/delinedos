@@ -146,6 +146,87 @@ def presign_object(path: str, expires: int = None) -> Optional[str]:
         logger.error(f"presign failed for {path}: {e}")
         return None
 
+# -------------------- Image derivatives --------------------
+# Grid thumbnails were downloading the full-resolution original and scaling it
+# down in CSS — a 4 MB background for a 300 px card. Generate smaller versions
+# once at upload time instead.
+#
+# WebP for the derivatives: it handles both photos and transparency, and is
+# markedly smaller than JPEG or PNG at the same quality. The original is always
+# kept untouched, so nothing is lost and the lightbox still shows full quality.
+DERIVATIVE_SIZES = {
+    "thumb": 480,   # index grid cards
+    "md": 1280,     # the large panel view
+}
+# Formats we do not touch: SVG is already tiny and resizing rasterises it, and
+# animated GIFs would lose their animation.
+NON_DERIVABLE_TYPES = ("image/svg+xml", "image/gif")
+
+
+def _build_derivatives(data: bytes, content_type: str) -> Dict[str, tuple]:
+    """Return {name: (bytes, content_type)} for each size smaller than the
+    source. Returns {} for non-images, unsupported types, or anything Pillow
+    cannot read — callers fall back to the original in that case."""
+    if not content_type.startswith("image/") or content_type in NON_DERIVABLE_TYPES:
+        return {}
+    try:
+        from PIL import Image, ImageOps
+    except Exception as e:  # pragma: no cover - only if Pillow is missing
+        logger.warning("Pillow unavailable, skipping derivatives: %s", e)
+        return {}
+
+    out: Dict[str, tuple] = {}
+    try:
+        with Image.open(io.BytesIO(data)) as im:
+            # Respect EXIF rotation, otherwise phone photos come out sideways.
+            im = ImageOps.exif_transpose(im)
+            im = im.convert("RGBA" if im.mode in ("RGBA", "LA", "P") else "RGB")
+            for name, width in DERIVATIVE_SIZES.items():
+                if im.width <= width:
+                    # Already smaller than this size — a derivative would be
+                    # pointless and could be larger than the original.
+                    continue
+                copy = im.copy()
+                copy.thumbnail((width, width * 4), Image.LANCZOS)
+                buf = io.BytesIO()
+                copy.save(buf, format="WEBP", quality=82, method=4)
+                out[name] = (buf.getvalue(), "image/webp")
+    except Exception as e:
+        logger.warning("Could not build derivatives (%s): %s", content_type, e)
+        return {}
+    return out
+
+
+async def _store_with_derivatives(file_id: str, base_path: str, data: bytes,
+                                  content_type: str, extra: Optional[dict] = None) -> dict:
+    """Upload the original plus any derivatives, and record them together."""
+    put_object(base_path, data, content_type)
+    variants = {}
+    for name, (blob, ctype) in _build_derivatives(data, content_type).items():
+        vpath = f"{base_path.rsplit('.', 1)[0]}_{name}.webp"
+        try:
+            put_object(vpath, blob, ctype)
+            variants[name] = {"path": vpath, "size": len(blob), "content_type": ctype}
+        except HTTPException as e:
+            # A failed derivative must not fail the upload — the original is
+            # already stored and everything still works without it.
+            logger.warning("derivative %s failed for %s: %s", name, base_path, e.detail)
+
+    doc = {
+        "id": file_id,
+        "storage_path": base_path,
+        "content_type": content_type,
+        "size": len(data),
+        "variants": variants,
+        "is_deleted": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if extra:
+        doc.update(extra)
+    await db.files.insert_one(doc)
+    return doc
+
+
 def delete_object(path: str) -> bool:
     """Best-effort removal of the underlying bytes when a record is deleted."""
     s3 = init_storage()
@@ -545,17 +626,16 @@ async def upload_file(file: UploadFile = File(...), admin: dict = Depends(get_cu
     path = f"{APP_NAME}/uploads/{file_id}.{ext}"
     data = await file.read()
     content_type = file.content_type or "application/octet-stream"
-    result = put_object(path, data, content_type)
-    await db.files.insert_one({
+    doc = await _store_with_derivatives(
+        file_id, path, data, content_type,
+        extra={"original_filename": file.filename},
+    )
+    return {
         "id": file_id,
-        "storage_path": result["path"],
-        "original_filename": file.filename,
+        "storage_path": path,
         "content_type": content_type,
-        "size": result.get("size", len(data)),
-        "is_deleted": False,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    })
-    return {"id": file_id, "storage_path": result["path"], "content_type": content_type}
+        "variants": list(doc.get("variants", {}).keys()),
+    }
 
 # Site image settings
 # No third-party defaults. Every slot is empty until an admin sets it or the
@@ -729,32 +809,57 @@ async def update_about_settings(body: SiteImagesIn, admin: dict = Depends(get_cu
     return {"ok": True, "artist_image_path": path}
 
 # File serving — public (we already gate the whole site with the password screen)
+# Stored paths contain a uuid and are never rewritten in place, so a fetched
+# file can be cached indefinitely. This is what stops the grid re-downloading
+# every image on every visit.
+IMMUTABLE_CACHE = "public, max-age=31536000, immutable"
+
+
 @api_router.get("/files/{path:path}")
-async def download_file(path: str):
+async def download_file(path: str, size: Optional[str] = Query(None, description="thumb | md — falls back to the original when absent")):
     record = await db.files.find_one({"storage_path": path, "is_deleted": False})
     if not record:
         # Allow direct fetches for known prefix anyway
         if not path.startswith(f"{APP_NAME}/"):
             raise HTTPException(status_code=404, detail="File not found")
 
-    # Video: hand back a short-lived direct URL rather than proxying the bytes.
-    # Buffering a whole video into memory here would also break seeking, since
-    # StreamingResponse does not honour HTTP range requests.
     recorded_ct = (record or {}).get("content_type", "") or ""
-    if recorded_ct.startswith("video/"):
-        url = presign_object(path)
+
+    # Serve a smaller rendition when one was asked for and exists. Anything
+    # else — no record, no such variant, an older upload from before
+    # derivatives existed — quietly falls back to the original, so nothing
+    # needs migrating for this to be safe.
+    serve_path, serve_ct = path, recorded_ct
+    if size and size in DERIVATIVE_SIZES:
+        variant = ((record or {}).get("variants") or {}).get(size)
+        if variant and variant.get("path"):
+            serve_path = variant["path"]
+            serve_ct = variant.get("content_type", "image/webp")
+
+    # Big files go straight from the bucket instead of through this service:
+    # video always, and full-size images (the lightbox view) which are the
+    # heaviest thing a visitor loads. Bucket egress is free; ours is not.
+    #
+    # The small derivatives are deliberately still proxied — a redirect hands
+    # back a freshly signed URL each time, which browsers cannot cache, and
+    # for grid thumbnails the cache is worth far more than the egress saved.
+    is_full_image = serve_ct.startswith("image/") and serve_path == path and not size
+    if serve_ct.startswith("video/") or is_full_image:
+        url = presign_object(serve_path)
         if url:
             return RedirectResponse(url, status_code=307)
         # If presigning is unavailable, fall through and proxy instead.
 
-    data, content_type = get_object(path)
-    record_ct = recorded_ct or content_type
+    data, content_type = get_object(serve_path)
     return StreamingResponse(
         io.BytesIO(data),
-        media_type=record_ct,
-        # Display in place rather than prompting a download if someone opens
-        # the file URL directly.
-        headers={"Content-Disposition": "inline"},
+        media_type=serve_ct or content_type,
+        headers={
+            # Display in place rather than prompting a download if someone
+            # opens the file URL directly.
+            "Content-Disposition": "inline",
+            "Cache-Control": IMMUTABLE_CACHE,
+        },
     )
 
 # -------------------- Seed & startup --------------------
@@ -921,6 +1026,63 @@ async def migrate_assets(
         "moved": moved,
         "failed": failed,
     }
+
+
+@api_router.post("/admin/generate-derivatives")
+async def generate_derivatives(
+    dry_run: bool = Query(False, description="Report what would be generated without writing anything"),
+    admin: dict = Depends(get_current_admin),
+):
+    """Build the smaller renditions for images uploaded before derivatives
+    existed. Safe to run repeatedly — files that already have every size are
+    skipped, and the originals are never modified."""
+    if not storage_configured():
+        raise HTTPException(status_code=503, detail="Storage not configured — set the R2_* variables first")
+
+    built, skipped, failed = [], 0, []
+    async for rec in db.files.find({"is_deleted": False}):
+        ctype = rec.get("content_type", "") or ""
+        path = rec.get("storage_path")
+        if not path or not ctype.startswith("image/") or ctype in NON_DERIVABLE_TYPES:
+            skipped += 1
+            continue
+        existing = rec.get("variants") or {}
+        if all(name in existing for name in DERIVATIVE_SIZES):
+            skipped += 1
+            continue
+        if dry_run:
+            built.append({"path": path, "missing": [n for n in DERIVATIVE_SIZES if n not in existing]})
+            continue
+        try:
+            data, _ = get_object(path)
+        except HTTPException as e:
+            failed.append({"path": path, "error": e.detail})
+            continue
+
+        made = {}
+        for name, (blob, vct) in _build_derivatives(data, ctype).items():
+            if name in existing:
+                continue
+            vpath = f"{path.rsplit('.', 1)[0]}_{name}.webp"
+            try:
+                put_object(vpath, blob, vct)
+                made[name] = {"path": vpath, "size": len(blob), "content_type": vct}
+            except HTTPException as e:
+                failed.append({"path": vpath, "error": e.detail})
+        if made:
+            merged = {**existing, **made}
+            await db.files.update_one({"id": rec["id"]}, {"$set": {"variants": merged}})
+            built.append({
+                "path": path,
+                "original_kb": round(len(data) / 1024),
+                "made": {k: round(v["size"] / 1024) for k, v in made.items()},
+            })
+        else:
+            skipped += 1
+
+    return {"ok": True, "dry_run": dry_run, "generated_count": len(built),
+            "skipped": skipped, "failed_count": len(failed),
+            "generated": built, "failed": failed}
 
 
 @api_router.post("/admin/purge-samples")

@@ -78,6 +78,8 @@ const load = () =>
             <span className="tape tape-tr" />
             <ProtectedImage
               src={selected.image_path}
+              size="md"
+              loading="eager"
               alt={selected.title}
               className="max-h-[55vh] w-auto object-contain block"
             />
@@ -156,7 +158,7 @@ const load = () =>
               <div className="font-pixel uppercase text-[10px] tracking-widest text-[var(--ink-soft)]">{it.date}</div>
               <div className="font-marker text-xl text-[var(--ink-color)] leading-tight">"{it.title}"</div>
               <div className="mt-2 aspect-[4/3] bg-[var(--bg-color)] border-2 border-[var(--ink-color)] overflow-hidden relative">
-                <ProtectedImage src={it.image_path} alt={it.title} className="w-full h-full object-cover" />
+                <ProtectedImage src={it.image_path} size="thumb" alt={it.title} className="w-full h-full object-cover" />
                 <button
                   type="button"
                   className="absolute bottom-1 right-1 font-pixel uppercase text-[10px] tracking-widest text-[var(--ink-color)] bg-[var(--bg-color)] px-2 py-1 border-2 border-[var(--ink-color)] cursor-zoom-in"
