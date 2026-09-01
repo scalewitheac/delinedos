@@ -5,6 +5,7 @@ import { NotebookFrame, PageCorner, StickyNote } from "../components/notebook/No
 import ProtectedImage from "../components/ProtectedImage";
 import AdminQuickAdd from "../components/AdminQuickAdd";
 import EditContentDialog from "../components/EditContentDialog";
+import ImageLightbox from "../components/ImageLightbox";
 import { useAuth } from "../context/AuthContext";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -17,6 +18,7 @@ const Drawings = () => {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
+  const [zoomed, setZoomed] = useState(null);
 
 const load = () =>
   axios
@@ -64,7 +66,14 @@ const load = () =>
       <h2 className="font-marker text-4xl text-[var(--ink-color)] mb-3 tilt-l2">doodles</h2>
       {selected ? (
         <div className="relative mt-2">
-          <div className="relative bg-[var(--bg-color)] p-3 inline-block max-w-full tilt-l shadow-lg" style={{ boxShadow: "3px 6px 12px var(--shadow)" }}>
+          <button
+            type="button"
+            className="relative bg-[var(--bg-color)] p-3 inline-block max-w-full tilt-l shadow-lg cursor-zoom-in text-left"
+            style={{ boxShadow: "3px 6px 12px var(--shadow)" }}
+            onClick={() => setZoomed(selected)}
+            title="click to view larger"
+            data-testid={`drawing-zoom-${selected.id}`}
+          >
             <span className="tape tape-tl" />
             <span className="tape tape-tr" />
             <ProtectedImage
@@ -72,7 +81,10 @@ const load = () =>
               alt={selected.title}
               className="max-h-[55vh] w-auto object-contain block"
             />
-          </div>
+            <span className="absolute bottom-4 right-4 font-pixel uppercase text-[10px] tracking-widest text-[var(--ink-soft)] bg-[var(--bg-color)] px-2 py-1 border border-[var(--ink-soft)]">
+              ⤢ enlarge
+            </span>
+          </button>
           <div className="mt-5 sticky tilt-r2 inline-block max-w-full p-3">
             <span className="tape" />
             <div className="font-pixel uppercase text-xs tracking-widest text-[var(--ink-soft)]">{selected.date}</div>
@@ -143,8 +155,24 @@ const load = () =>
             >
               <div className="font-pixel uppercase text-[10px] tracking-widest text-[var(--ink-soft)]">{it.date}</div>
               <div className="font-marker text-xl text-[var(--ink-color)] leading-tight">"{it.title}"</div>
-              <div className="mt-2 aspect-[4/3] bg-[var(--bg-color)] border-2 border-[var(--ink-color)] overflow-hidden">
+              <div className="mt-2 aspect-[4/3] bg-[var(--bg-color)] border-2 border-[var(--ink-color)] overflow-hidden relative">
                 <ProtectedImage src={it.image_path} alt={it.title} className="w-full h-full object-cover" />
+                <button
+                  type="button"
+                  className="absolute bottom-1 right-1 font-pixel uppercase text-[10px] tracking-widest text-[var(--ink-color)] bg-[var(--bg-color)] px-2 py-1 border-2 border-[var(--ink-color)] cursor-zoom-in"
+                  title="view larger"
+                  aria-label={`view ${it.title} larger`}
+                  data-testid={`drawing-thumb-zoom-${it.id}`}
+                  onClick={(e) => {
+                    // Keep the sticky note's own click (which selects the
+                    // drawing) from firing as well.
+                    e.stopPropagation();
+                    setSelected(it);
+                    setZoomed(it);
+                  }}
+                >
+                  ⤢
+                </button>
               </div>
               <div className="mt-2 flex flex-wrap gap-1">
                 {(it.tags || []).slice(0, 3).map((t) => (
@@ -170,9 +198,28 @@ const load = () =>
     </div>
   );
 
+  // Step through the filtered list from inside the lightbox, so prev/next
+  // follow whatever search the viewer has applied rather than the full set.
+  const zoomIndex = zoomed ? filtered.findIndex((x) => x.id === zoomed.id) : -1;
+  const stepZoom = (delta) => {
+    if (zoomIndex < 0 || !filtered.length) return;
+    const next = filtered[(zoomIndex + delta + filtered.length) % filtered.length];
+    setZoomed(next);
+    setSelected(next);
+  };
+
   return (
     <>
       <NotebookFrame leftPage={leftPage} rightPage={rightPage} />
+      {zoomed && (
+        <ImageLightbox
+          item={zoomed}
+          onClose={() => setZoomed(null)}
+          onPrev={filtered.length > 1 ? () => stepZoom(-1) : undefined}
+          onNext={filtered.length > 1 ? () => stepZoom(1) : undefined}
+          position={zoomIndex >= 0 ? `${zoomIndex + 1} / ${filtered.length}` : undefined}
+        />
+      )}
       {editing && (
         <EditContentDialog
           type="drawing"
