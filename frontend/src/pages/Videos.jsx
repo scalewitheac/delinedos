@@ -157,7 +157,9 @@ const VideoPlayer = ({ video, onClose, onNext, hasNext, onEdit, isAdmin }) => {
 
   return (
     <div className="lightbox-bg" data-testid="video-lightbox" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="pico-window w-full max-w-3xl" onContextMenu={(e) => e.preventDefault()}>
+      {/* max-h-full + column flow so a long description scrolls inside the
+          window rather than pushing the controls past the bottom of the screen */}
+      <div className="pico-window w-full max-w-3xl max-h-full flex flex-col overflow-y-auto" onContextMenu={(e) => e.preventDefault()}>
         <div className="pico-titlebar">
           <span>{video.title}</span>
           <button className="font-pixel" onClick={onClose} data-testid="video-close-btn">[X]</button>
@@ -189,6 +191,34 @@ const VideoPlayer = ({ video, onClose, onNext, hasNext, onEdit, isAdmin }) => {
             </video>
           )}
         </div>
+
+        {(video.description || video.date || (video.tags || []).length > 0) && (
+          <div className="px-3 pb-3 bg-[var(--bg-color)]" data-testid="video-description-panel">
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              {video.date && (
+                <span className="font-pixel uppercase text-[10px] tracking-widest text-[var(--ink-soft)]">
+                  {video.date}
+                </span>
+              )}
+              {(video.tags || []).map((t) => (
+                <span key={t} className="font-pixel text-[10px] uppercase tracking-widest text-[var(--ink-soft)]">
+                  #{t}
+                </span>
+              ))}
+            </div>
+            {video.description && (
+              // pre-wrap so line breaks typed in the admin box survive, and a
+              // capped height so a long note scrolls instead of pushing the
+              // player controls off screen.
+              <p
+                className="font-hand text-[var(--ink-color)] text-base md:text-lg leading-relaxed mt-2 whitespace-pre-wrap max-h-[22vh] overflow-y-auto notebook-scroll"
+                data-testid="video-description"
+              >
+                {video.description}
+              </p>
+            )}
+          </div>
+        )}
         <div className="border-t-2 border-[var(--ink-color)] bg-[var(--bg-deep)] p-2 flex flex-wrap gap-2 items-center">
           {!isExternal && (
             <>
