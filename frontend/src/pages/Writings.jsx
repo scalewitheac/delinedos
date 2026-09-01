@@ -17,13 +17,16 @@ const Writings = () => {
   const [editing, setEditing] = useState(null);
 
   const load = () =>
-  axios.get(`${API}/writings`).then((r) => {
-    const data = Array.isArray(r.data)
-      ? r.data
-      : r.data.writings || [];
+    axios
+      .get(`${API}/writings`)
+      .then((r) => {
+        const data = Array.isArray(r.data)
+          ? r.data
+          : r.data.writings || [];
 
-    setItems(data);
-  });
+        setItems(data);
+      })
+      .catch(() => setItems([]));
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
 

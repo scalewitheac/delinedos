@@ -119,7 +119,6 @@ const Videos = () => {
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState(null);
 
-  useEffect(() => {
   const reload = () =>
     axios.get(`${API}/videos`).then((r) => {
       const data = Array.isArray(r.data)
@@ -137,12 +136,10 @@ const Videos = () => {
           setOpen(picked);
         }
       }
-    });
+      })
+      .catch(() => setItems([]));
 
-  reload();
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, []);
+  useEffect(() => { reload(); /* eslint-disable-next-line */ }, []);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
