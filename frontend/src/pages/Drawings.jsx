@@ -19,18 +19,22 @@ const Drawings = () => {
   const [editing, setEditing] = useState(null);
 
 const load = () =>
-  axios.get(`${API}/drawings`).then((r) => {
-    setItems(Array.isArray(r.data) ? r.data : []);
+  axios
+    .get(`${API}/drawings`)
+    .then((r) => {
+      setItems(Array.isArray(r.data) ? r.data : []);
 
-    const preselectId = location.state?.selectedId;
-    const picked = Array.isArray(r.data)
-      ? r.data.find((x) => x.id === preselectId)
-      : null;
+      const preselectId = location.state?.selectedId;
+      const picked = Array.isArray(r.data)
+        ? r.data.find((x) => x.id === preselectId)
+        : null;
 
-    if (picked) {
-      setSelected(picked);
-    }
-  });
+      if (picked) {
+        setSelected(picked);
+      }
+    })
+    .catch(() => setItems([]))
+    .finally(() => setLoading(false));
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
 
@@ -147,7 +151,13 @@ const load = () =>
           ))}
         </div>
         {!filtered.length && (
-          <p className="font-hand text-[var(--ink-soft)] mt-6">nothing here. try clearing the search.</p>
+          <p className="font-hand text-[var(--ink-soft)] mt-6">
+            {loading
+              ? "loading..."
+              : query.trim()
+              ? "nothing here. try clearing the search."
+              : "no drawings yet."}
+          </p>
         )}
       </div>
       <PageCorner onClick={next} label="next entry" />

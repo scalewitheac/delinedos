@@ -12,8 +12,11 @@ from typing import List, Optional, Dict, Any
 
 import bcrypt
 import jwt
+import boto3
+from botocore.config import Config as BotoConfig
+from botocore.exceptions import ClientError
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Request, Response, Header, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, RedirectResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import certifi
@@ -38,8 +41,16 @@ SITE_PASSWORD = os.environ.get('SITE_PASSWORD', 'pass')
 ADMIN_EMAIL = os.environ['ADMIN_EMAIL']
 ADMIN_PASSWORD = os.environ['ADMIN_PASSWORD']
 APP_NAME = os.environ.get('APP_NAME', 'delined')
-EMERGENT_KEY = os.environ.get('EMERGENT_LLM_KEY')
-STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
+
+# -------------------- Object storage config (Cloudflare R2 / S3-compatible) --------------------
+# R2 is S3-compatible, so this also works unchanged against AWS S3 or MinIO.
+R2_ENDPOINT = os.environ.get('R2_ENDPOINT', '')
+R2_BUCKET = os.environ.get('R2_BUCKET', '')
+R2_ACCESS_KEY_ID = os.environ.get('R2_ACCESS_KEY_ID', '')
+R2_SECRET_ACCESS_KEY = os.environ.get('R2_SECRET_ACCESS_KEY', '')
+# Videos are redirected to short-lived presigned URLs instead of being proxied,
+# so large files stream straight from the bucket (no egress through this service).
+PRESIGN_TTL_SECONDS = int(os.environ.get('PRESIGN_TTL_SECONDS', '3600'))
 MESSAGE_EMAIL = os.environ.get('MESSAGE_EMAIL', '')
 EMAIL_FROM = os.environ.get('EMAIL_FROM', 'delined <onboarding@resend.dev>')
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '')
@@ -50,65 +61,93 @@ api_router = APIRouter(prefix="/api")
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# -------------------- Object storage --------------------
-storage_key = None
+# -------------------- Object storage (S3-compatible: Cloudflare R2) --------------------
+_s3_client = None
+
+def storage_configured() -> bool:
+    return all([R2_ENDPOINT, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY])
 
 def init_storage():
-    global storage_key
-    if storage_key:
-        return storage_key
-    if not EMERGENT_KEY:
-        logger.warning("EMERGENT_LLM_KEY not set — storage disabled")
+    """Return a cached boto3 S3 client pointed at R2, or None if unconfigured."""
+    global _s3_client
+    if _s3_client is not None:
+        return _s3_client
+    if not storage_configured():
+        missing = [n for n, v in [
+            ("R2_ENDPOINT", R2_ENDPOINT), ("R2_BUCKET", R2_BUCKET),
+            ("R2_ACCESS_KEY_ID", R2_ACCESS_KEY_ID),
+            ("R2_SECRET_ACCESS_KEY", R2_SECRET_ACCESS_KEY),
+        ] if not v]
+        logger.warning("Object storage disabled — missing env vars: %s", ", ".join(missing))
         return None
     try:
-        resp = requests.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_KEY}, timeout=30)
-        resp.raise_for_status()
-        storage_key = resp.json()["storage_key"]
-        return storage_key
+        _s3_client = boto3.client(
+            "s3",
+            endpoint_url=R2_ENDPOINT,
+            aws_access_key_id=R2_ACCESS_KEY_ID,
+            aws_secret_access_key=R2_SECRET_ACCESS_KEY,
+            # R2 ignores region but boto3 requires one; "auto" is what Cloudflare documents.
+            region_name="auto",
+            config=BotoConfig(signature_version="s3v4", retries={"max_attempts": 3, "mode": "standard"}),
+        )
+        return _s3_client
     except Exception as e:
         logger.error(f"Storage init failed: {e}")
         return None
 
 def put_object(path: str, data: bytes, content_type: str) -> dict:
-    key = init_storage()
-    if not key:
-        raise HTTPException(status_code=500, detail="Storage not available")
-    resp = requests.put(
-        f"{STORAGE_URL}/objects/{path}",
-        headers={"X-Storage-Key": key, "Content-Type": content_type},
-        data=data, timeout=120
-    )
-    if resp.status_code == 403:
-        # try reinit
-        global storage_key
-        storage_key = None
-        key = init_storage()
-        resp = requests.put(
-            f"{STORAGE_URL}/objects/{path}",
-            headers={"X-Storage-Key": key, "Content-Type": content_type},
-            data=data, timeout=120
-        )
-    resp.raise_for_status()
-    return resp.json()
+    s3 = init_storage()
+    if not s3:
+        raise HTTPException(status_code=503, detail="Storage not configured")
+    try:
+        s3.put_object(Bucket=R2_BUCKET, Key=path, Body=data, ContentType=content_type)
+    except ClientError as e:
+        logger.error(f"put_object failed for {path}: {e}")
+        raise HTTPException(status_code=502, detail="Upload to storage failed")
+    return {"path": path, "size": len(data)}
 
 def get_object(path: str):
-    key = init_storage()
-    if not key:
-        raise HTTPException(status_code=500, detail="Storage not available")
-    resp = requests.get(
-        f"{STORAGE_URL}/objects/{path}",
-        headers={"X-Storage-Key": key}, timeout=60
-    )
-    if resp.status_code == 403:
-        global storage_key
-        storage_key = None
-        key = init_storage()
-        resp = requests.get(
-            f"{STORAGE_URL}/objects/{path}",
-            headers={"X-Storage-Key": key}, timeout=60
+    s3 = init_storage()
+    if not s3:
+        raise HTTPException(status_code=503, detail="Storage not configured")
+    try:
+        resp = s3.get_object(Bucket=R2_BUCKET, Key=path)
+    except ClientError as e:
+        code = e.response.get("Error", {}).get("Code", "")
+        if code in ("NoSuchKey", "404", "NotFound"):
+            raise HTTPException(status_code=404, detail="File not found")
+        logger.error(f"get_object failed for {path}: {e}")
+        raise HTTPException(status_code=502, detail="Storage read failed")
+    return resp["Body"].read(), resp.get("ContentType", "application/octet-stream")
+
+def presign_object(path: str, expires: int = None) -> Optional[str]:
+    """Short-lived direct download URL. Used for video so bytes never proxy
+    through this service (keeps egress on R2, where it is free, and lets the
+    browser issue range requests for seeking)."""
+    s3 = init_storage()
+    if not s3:
+        return None
+    try:
+        return s3.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": R2_BUCKET, "Key": path},
+            ExpiresIn=expires or PRESIGN_TTL_SECONDS,
         )
-    resp.raise_for_status()
-    return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
+    except ClientError as e:
+        logger.error(f"presign failed for {path}: {e}")
+        return None
+
+def delete_object(path: str) -> bool:
+    """Best-effort removal of the underlying bytes when a record is deleted."""
+    s3 = init_storage()
+    if not s3 or not path:
+        return False
+    try:
+        s3.delete_object(Bucket=R2_BUCKET, Key=path)
+        return True
+    except ClientError as e:
+        logger.warning(f"delete_object failed for {path}: {e}")
+        return False
 
 # -------------------- Auth helpers --------------------
 def hash_password(password: str) -> str:
@@ -323,11 +362,25 @@ async def create_drawing(body: DrawingIn, admin: dict = Depends(get_current_admi
     doc.pop("_id", None)
     return doc
 
+async def _discard_stored_files(*paths: Optional[str]) -> None:
+    """Remove uploaded bytes for a deleted record so the bucket does not
+    accumulate orphans. External http(s) URLs are left alone — we do not own
+    them. Failures are logged, never raised: the record is already gone and a
+    stray object should not turn into a 500 for the user."""
+    for p in paths:
+        if not p or p.startswith("http://") or p.startswith("https://"):
+            continue
+        if delete_object(p):
+            await db.files.update_one({"storage_path": p}, {"$set": {"is_deleted": True}})
+
+
 @api_router.delete("/drawings/{drawing_id}")
 async def delete_drawing(drawing_id: str, admin: dict = Depends(get_current_admin)):
+    doc = await db.drawings.find_one({"id": drawing_id})
     r = await db.drawings.delete_one({"id": drawing_id})
     if r.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Not found")
+    await _discard_stored_files((doc or {}).get("image_path"))
     return {"ok": True}
 
 @api_router.put("/drawings/{drawing_id}")
@@ -391,9 +444,11 @@ async def create_video(body: VideoIn, admin: dict = Depends(get_current_admin)):
 
 @api_router.delete("/videos/{video_id}")
 async def delete_video(video_id: str, admin: dict = Depends(get_current_admin)):
+    doc = await db.videos.find_one({"id": video_id})
     r = await db.videos.delete_one({"id": video_id})
     if r.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Not found")
+    await _discard_stored_files((doc or {}).get("video_path"), (doc or {}).get("thumbnail_path"))
     return {"ok": True}
 
 @api_router.put("/videos/{video_id}")
@@ -657,8 +712,19 @@ async def download_file(path: str):
         # Allow direct fetches for known prefix anyway
         if not path.startswith(f"{APP_NAME}/"):
             raise HTTPException(status_code=404, detail="File not found")
+
+    # Video: hand back a short-lived direct URL rather than proxying the bytes.
+    # Buffering a whole video into memory here would also break seeking, since
+    # StreamingResponse does not honour HTTP range requests.
+    recorded_ct = (record or {}).get("content_type", "") or ""
+    if recorded_ct.startswith("video/"):
+        url = presign_object(path)
+        if url:
+            return RedirectResponse(url, status_code=307)
+        # If presigning is unavailable, fall through and proxy instead.
+
     data, content_type = get_object(path)
-    record_ct = record.get("content_type", content_type) if record else content_type
+    record_ct = recorded_ct or content_type
     return StreamingResponse(io.BytesIO(data), media_type=record_ct)
 
 # -------------------- Seed & startup --------------------
