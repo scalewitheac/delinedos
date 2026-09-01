@@ -9,6 +9,48 @@ import { useAuth } from "../context/AuthContext";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
+// YouTube and Vimeo refuse to render inside an iframe when given their normal
+// "watch" links — only their /embed/ (or player.vimeo.com) forms are frameable.
+// Admins naturally paste the URL straight from the address bar, so normalise it
+// here at render time. Doing it here rather than on save means videos already
+// stored with a watch URL start working too. Anything unrecognised is passed
+// through untouched.
+export const toEmbedUrl = (raw) => {
+  if (!raw) return "";
+  const url = String(raw).trim();
+  let u;
+  try {
+    u = new URL(url);
+  } catch {
+    return url; // not a parseable URL — leave it alone
+  }
+  const host = u.hostname.replace(/^www\./, "").toLowerCase();
+
+  // Already an embeddable form.
+  if (u.pathname.startsWith("/embed/") || u.pathname.startsWith("/video/")) return url;
+
+  let id = null;
+  if (host === "youtu.be") {
+    id = u.pathname.slice(1).split("/")[0];
+  } else if (host.endsWith("youtube.com") || host.endsWith("youtube-nocookie.com")) {
+    if (u.pathname === "/watch") id = u.searchParams.get("v");
+    else if (u.pathname.startsWith("/shorts/")) id = u.pathname.split("/")[2];
+    else if (u.pathname.startsWith("/live/")) id = u.pathname.split("/")[2];
+  }
+  if (id) {
+    const start = u.searchParams.get("t") || u.searchParams.get("start");
+    const secs = start ? String(start).replace(/[^0-9]/g, "") : "";
+    return `https://www.youtube.com/embed/${id}${secs ? `?start=${secs}` : ""}`;
+  }
+
+  if (host.endsWith("vimeo.com")) {
+    const vid = u.pathname.split("/").filter(Boolean)[0];
+    if (vid && /^\d+$/.test(vid)) return `https://player.vimeo.com/video/${vid}`;
+  }
+
+  return url;
+};
+
 const VideoPlayer = ({ video, onClose, onNext, hasNext, onEdit, isAdmin }) => {
   const ref = useRef(null);
   const [loop, setLoop] = useState(false);
@@ -45,7 +87,7 @@ const VideoPlayer = ({ video, onClose, onNext, hasNext, onEdit, isAdmin }) => {
             <div className="aspect-video">
               <iframe
                 title={video.title}
-                src={video.external_url}
+                src={toEmbedUrl(video.external_url)}
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowFullScreen
                 className="w-full h-full"

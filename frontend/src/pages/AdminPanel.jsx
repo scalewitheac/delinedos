@@ -534,7 +534,7 @@ const AdminPanel = () => {
         <form onSubmit={addVideo} className="grid grid-cols-1 sm:grid-cols-2 gap-3" data-testid="add-video-form">
           <input className="pico-input font-hand" placeholder="title" value={v.title} onChange={(e) => setV({ ...v, title: e.target.value })} data-testid="video-title-input" />
           <input className="pico-input font-hand" placeholder="MM/DD/YYYY" value={v.date} onChange={(e) => setV({ ...v, date: e.target.value })} data-testid="video-date-input" />
-          <input className="pico-input font-hand sm:col-span-2" placeholder="external url (youtube/vimeo embed) — leave empty if uploading" value={v.external_url} onChange={(e) => setV({ ...v, external_url: e.target.value })} data-testid="video-url-input" />
+          <input className="pico-input font-hand sm:col-span-2" placeholder="external url (paste any youtube/vimeo link) — leave empty if uploading" value={v.external_url} onChange={(e) => setV({ ...v, external_url: e.target.value })} data-testid="video-url-input" />
           <input className="pico-input font-hand sm:col-span-2" placeholder="video storage_path (filled by upload)" value={v.video_path} onChange={(e) => setV({ ...v, video_path: e.target.value })} data-testid="video-path-input" />
           <input className="pico-input font-hand sm:col-span-2" placeholder="thumbnail storage_path or URL" value={v.thumbnail_path} onChange={(e) => setV({ ...v, thumbnail_path: e.target.value })} data-testid="video-thumb-input" />
           <input className="pico-input font-hand sm:col-span-2" placeholder="tags (comma separated)" value={v.tags} onChange={(e) => setV({ ...v, tags: e.target.value })} data-testid="video-tags-input" />
