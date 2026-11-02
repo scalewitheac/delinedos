@@ -3,6 +3,7 @@ import axios from "axios";
 import { useAuth } from "../context/AuthContext";
 import { toast } from "sonner";
 import DateField from "./DateField";
+import { uploadLargeVideo } from "../utils/videoUpload";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -19,6 +20,7 @@ const AdminQuickAdd = ({ type, onAdded }) => {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
 
   // Shared form fields (only the relevant ones are rendered per type)
   const [title, setTitle] = useState("");
@@ -46,16 +48,23 @@ const AdminQuickAdd = ({ type, onAdded }) => {
   const uploadFile = async (file, setter) => {
     if (!file) return;
     setUploading(true);
+    setUploadProgress(0);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const { data } = await api.post("/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      let data;
+      if (file.type.startsWith("video/")) {
+        data = await uploadLargeVideo(file, api, setUploadProgress);
+      } else {
+        const fd = new FormData();
+        fd.append("file", file);
+        ({ data } = await api.post("/upload", fd, { headers: { "Content-Type": "multipart/form-data" } }));
+      }
       setter(data.storage_path);
       toast(`uploaded: ${file.name}`);
     } catch (err) {
-      toast("upload failed");
+      toast(err.response?.data?.detail || err.message || "upload failed");
     } finally {
       setUploading(false);
+      setUploadProgress(0);
     }
   };
 
@@ -102,7 +111,7 @@ const AdminQuickAdd = ({ type, onAdded }) => {
 
   const FileUpload = ({ label, accept, onPath, testId }) => (
     <label className="pico-btn cursor-pointer inline-block" data-testid={testId}>
-      {uploading ? "uploading..." : label}
+      {uploading ? `uploading ${uploadProgress}%` : label}
       <input
         type="file"
         accept={accept}

@@ -5,6 +5,7 @@ load_dotenv(ROOT_DIR / '.env')
 
 import os
 import uuid
+import re
 import logging
 import requests
 from datetime import datetime, timezone, timedelta
@@ -54,6 +55,11 @@ R2_SECRET_ACCESS_KEY = os.environ.get('R2_SECRET_ACCESS_KEY', '')
 # minutes rather than being shareable for an hour. Long enough to watch a video
 # through, since the URL only has to be valid when playback starts.
 PRESIGN_TTL_SECONDS = int(os.environ.get('PRESIGN_TTL_SECONDS', '600'))
+# Large video uploads go directly from the browser to R2 using S3 multipart.
+VIDEO_MAX_UPLOAD_BYTES = int(os.environ.get("VIDEO_MAX_UPLOAD_BYTES", str(5_000_000_000)))
+VIDEO_MULTIPART_PART_SIZE = int(os.environ.get("VIDEO_MULTIPART_PART_SIZE", str(64 * 1024**2)))
+VIDEO_MULTIPART_MAX_PARTS = 10000
+
 MESSAGE_EMAIL = os.environ.get('MESSAGE_EMAIL', '')
 EMAIL_FROM = os.environ.get('EMAIL_FROM', 'delined <onboarding@resend.dev>')
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '')
@@ -621,11 +627,18 @@ async def update_message(message_id: str, body: MessageUpdate, admin: dict = Dep
 # Upload
 @api_router.post("/upload")
 async def upload_file(file: UploadFile = File(...), admin: dict = Depends(get_current_admin)):
+    # This endpoint remains for small images and legacy uploads. Large videos use
+    # the direct-to-R2 multipart endpoints below so the backend never buffers them.
+    content_type = file.content_type or "application/octet-stream"
+    if content_type.startswith("video/"):
+        raise HTTPException(
+            status_code=413,
+            detail="Video uploads must use the resumable multipart upload flow.",
+        )
     ext = file.filename.split(".")[-1].lower() if "." in file.filename else "bin"
     file_id = str(uuid.uuid4())
     path = f"{APP_NAME}/uploads/{file_id}.{ext}"
     data = await file.read()
-    content_type = file.content_type or "application/octet-stream"
     doc = await _store_with_derivatives(
         file_id, path, data, content_type,
         extra={"original_filename": file.filename},
@@ -636,6 +649,152 @@ async def upload_file(file: UploadFile = File(...), admin: dict = Depends(get_cu
         "content_type": content_type,
         "variants": list(doc.get("variants", {}).keys()),
     }
+
+
+class VideoMultipartInit(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+    content_type: str = Field(default="video/mp4", max_length=150)
+    size: int = Field(gt=0)
+
+
+class VideoMultipartPart(BaseModel):
+    part_number: int = Field(ge=1, le=VIDEO_MULTIPART_MAX_PARTS)
+    etag: str = Field(min_length=1, max_length=256)
+
+
+class VideoMultipartComplete(BaseModel):
+    parts: List[VideoMultipartPart]
+
+
+@api_router.post("/upload/video/multipart/init")
+async def init_video_multipart(body: VideoMultipartInit, admin: dict = Depends(get_current_admin)):
+    if body.size > VIDEO_MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Video exceeds the {VIDEO_MAX_UPLOAD_BYTES // (1024**3)} GB upload limit.",
+        )
+    if not body.content_type.lower().startswith("video/"):
+        raise HTTPException(status_code=415, detail="Please select a video file.")
+    s3 = init_storage()
+    if not s3:
+        raise HTTPException(status_code=503, detail="Cloudflare R2 storage is not configured.")
+    ext = body.filename.rsplit(".", 1)[-1].lower() if "." in body.filename else "mp4"
+    if not re.fullmatch(r"[a-z0-9]{1,10}", ext):
+        ext = "mp4"
+    file_id = str(uuid.uuid4())
+    path = f"{APP_NAME}/uploads/{file_id}.{ext}"
+    try:
+        result = s3.create_multipart_upload(
+            Bucket=R2_BUCKET, Key=path, ContentType=body.content_type,
+            Metadata={"original-filename": body.filename[:200]},
+        )
+        upload_id = result["UploadId"]
+        expected_parts = (body.size + VIDEO_MULTIPART_PART_SIZE - 1) // VIDEO_MULTIPART_PART_SIZE
+        if expected_parts > VIDEO_MULTIPART_MAX_PARTS:
+            s3.abort_multipart_upload(Bucket=R2_BUCKET, Key=path, UploadId=upload_id)
+            raise HTTPException(status_code=413, detail="Video requires too many upload parts.")
+        await db.multipart_uploads.insert_one({
+            "upload_id": upload_id, "file_id": file_id, "path": path,
+            "admin_id": admin["id"], "filename": body.filename,
+            "content_type": body.content_type, "size": body.size,
+            "expected_parts": expected_parts,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        return {
+            "upload_id": upload_id, "file_id": file_id, "storage_path": path,
+            "part_size": VIDEO_MULTIPART_PART_SIZE, "total_parts": expected_parts,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Could not initiate R2 multipart upload")
+        raise HTTPException(status_code=502, detail="Could not start video upload.") from exc
+
+
+@api_router.post("/upload/video/multipart/{upload_id}/part-url")
+async def get_video_part_url(
+    upload_id: str, part_number: int = Query(ge=1, le=VIDEO_MULTIPART_MAX_PARTS),
+    admin: dict = Depends(get_current_admin),
+):
+    record = await db.multipart_uploads.find_one({"upload_id": upload_id, "admin_id": admin["id"]})
+    if not record:
+        raise HTTPException(status_code=404, detail="Upload session not found or expired.")
+    if part_number > record["expected_parts"]:
+        raise HTTPException(status_code=400, detail="Invalid part number.")
+    s3 = init_storage()
+    try:
+        url = s3.generate_presigned_url(
+            "upload_part",
+            Params={"Bucket": R2_BUCKET, "Key": record["path"],
+                    "UploadId": upload_id, "PartNumber": part_number},
+            ExpiresIn=3600,
+        )
+        return {"url": url}
+    except Exception as exc:
+        logger.exception("Could not presign R2 video part")
+        raise HTTPException(status_code=502, detail="Could not prepare video upload part.") from exc
+
+
+@api_router.post("/upload/video/multipart/{upload_id}/complete")
+async def complete_video_multipart(
+    upload_id: str, body: VideoMultipartComplete,
+    admin: dict = Depends(get_current_admin),
+):
+    record = await db.multipart_uploads.find_one({"upload_id": upload_id, "admin_id": admin["id"]})
+    if not record:
+        raise HTTPException(status_code=404, detail="Upload session not found or expired.")
+    parts = sorted(body.parts, key=lambda item: item.part_number)
+    expected_numbers = list(range(1, record["expected_parts"] + 1))
+    if [part.part_number for part in parts] != expected_numbers:
+        raise HTTPException(status_code=400, detail="One or more video parts are missing.")
+    s3 = init_storage()
+    try:
+        s3.complete_multipart_upload(
+            Bucket=R2_BUCKET, Key=record["path"], UploadId=upload_id,
+            MultipartUpload={"Parts": [
+                {"PartNumber": part.part_number, "ETag": part.etag}
+                for part in parts
+            ]},
+        )
+        head = s3.head_object(Bucket=R2_BUCKET, Key=record["path"])
+        actual_size = int(head.get("ContentLength", 0))
+        if actual_size != record["size"]:
+            logger.error("R2 multipart size mismatch for %s: expected %s, got %s",
+                         record["path"], record["size"], actual_size)
+            raise HTTPException(status_code=502, detail="Uploaded video size verification failed.")
+        doc = {
+            "id": record["file_id"], "storage_path": record["path"],
+            "content_type": record["content_type"], "size": actual_size,
+            "variants": {}, "is_deleted": False,
+            "original_filename": record["filename"],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.files.insert_one(doc)
+        await db.multipart_uploads.delete_one({"upload_id": upload_id})
+        return {
+            "id": record["file_id"], "storage_path": record["path"],
+            "content_type": record["content_type"], "size": actual_size,
+            "variants": [],
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Could not complete R2 multipart video upload")
+        raise HTTPException(status_code=502, detail="Could not finish video upload. Please retry.") from exc
+
+
+@api_router.post("/upload/video/multipart/{upload_id}/abort")
+async def abort_video_multipart(upload_id: str, admin: dict = Depends(get_current_admin)):
+    record = await db.multipart_uploads.find_one({"upload_id": upload_id, "admin_id": admin["id"]})
+    if not record:
+        return {"aborted": True}
+    try:
+        init_storage().abort_multipart_upload(
+            Bucket=R2_BUCKET, Key=record["path"], UploadId=upload_id
+        )
+    finally:
+        await db.multipart_uploads.delete_one({"upload_id": upload_id})
+    return {"aborted": True}
 
 # Site image settings
 # No third-party defaults. Every slot is empty until an admin sets it or the

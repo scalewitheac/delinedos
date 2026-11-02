@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import axios from "axios";
 import { toast } from "sonner";
+import { uploadLargeVideo } from "../utils/videoUpload";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -11,6 +12,7 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
  */
 const UploadField = ({ label, onUploaded, accept, testId }) => {
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState(0);
 
   const onPick = async (e) => {
     const file = e.target.files?.[0];
@@ -19,18 +21,24 @@ const UploadField = ({ label, onUploaded, accept, testId }) => {
     if (!token) { toast("not signed in"); return; }
     setBusy(true);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const { data } = await axios.post(`${API}/upload`, fd, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-          Authorization: `Bearer ${token}`,
-        },
+      const api = axios.create({
+        baseURL: API,
+        headers: { Authorization: `Bearer ${token}` },
       });
+      let data;
+      if (file.type.startsWith("video/")) {
+        data = await uploadLargeVideo(file, api, setProgress);
+      } else {
+        const fd = new FormData();
+        fd.append("file", file);
+        ({ data } = await api.post("/upload", fd, {
+          headers: { "Content-Type": "multipart/form-data" },
+        }));
+      }
       onUploaded(data.storage_path);
       toast(`uploaded ${file.name}`);
-    } catch {
-      toast("upload failed.");
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || "upload failed.");
     } finally {
       setBusy(false);
       e.target.value = "";
@@ -39,7 +47,7 @@ const UploadField = ({ label, onUploaded, accept, testId }) => {
 
   return (
     <label className="pico-btn cursor-pointer inline-block" data-testid={testId}>
-      {busy ? "uploading..." : label}
+      {busy ? `uploading ${progress}%` : label}
       <input type="file" className="hidden" accept={accept} onChange={onPick} />
     </label>
   );
